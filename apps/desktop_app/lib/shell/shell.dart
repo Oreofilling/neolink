@@ -83,7 +83,7 @@ class _AppShellState extends State<AppShell> {
             Row(children: [
               Container(width: 22, height: 22, decoration: BoxDecoration(color: c.primary, borderRadius: BorderRadius.circular(6))),
               const SizedBox(width: 8),
-              Text('NeoLink', style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800)),
+              const Text('NeoLink', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800)),
             ]),
             const SizedBox(height: 4),
             Text(l.brandSubtitle, style: TextStyle(fontSize: 10, color: c.mutedForeground)),
@@ -94,8 +94,8 @@ class _AppShellState extends State<AppShell> {
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
             children: [
               for (final (g, items) in _groups) ...[
-                const Padding(
-                  padding: EdgeInsets.fromLTRB(10, 10, 10, 4),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(10, 10, 10, 4),
                   child: Text(l.groupLabel(g), style: TextStyle(fontSize: 11, color: c.mutedForeground)),
                 ),
                 for (final it in items) _navItem(c, l, it),

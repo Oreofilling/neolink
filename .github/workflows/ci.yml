@@ -14,3 +14,9 @@ jobs:
       - name: analyze + test + build
         shell: bash
         run: bash tool/ci.sh
+      - name: upload windows build
+        uses: actions/upload-artifact@v4
+        with:
+          name: neolink-windows-x64
+          path: apps/desktop_app/build/windows/x64/runner/Release/
+          if-no-files-found: warn
