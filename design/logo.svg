@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" role="img" aria-label="NeoLink">
+  <!-- 链·N（单墨主文件）：N 的对角线在中心断开，由节点圆续接。currentColor 随语境着色。 -->
+  <g stroke="currentColor" stroke-width="9" stroke-linecap="round" fill="none">
+    <path d="M24 22 V74"/>
+    <path d="M72 22 V74"/>
+    <path d="M26 24 L40 39"/>
+    <path d="M56 57 L70 72"/>
+  </g>
+  <circle cx="48" cy="48" r="8" fill="currentColor"/>
+</svg>

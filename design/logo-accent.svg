@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" role="img" aria-label="NeoLink">
+  <!-- 链·N（accent 变体）：亮面令牌，accent 只出现在中心节点。 -->
+  <g stroke="#16181D" stroke-width="9" stroke-linecap="round" fill="none">
+    <path d="M24 22 V74"/>
+    <path d="M72 22 V74"/>
+    <path d="M26 24 L40 39"/>
+    <path d="M56 57 L70 72"/>
+  </g>
+  <circle cx="48" cy="48" r="8" fill="#00919B"/>
+</svg>

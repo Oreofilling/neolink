@@ -1,0 +1,335 @@
+<title>NeoLink Logo</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;700;800&family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* 设计计划：NL 令牌单色体系 —— ink 主导、border-only 卡片、唯一 accent 取 info 青；
+   字型 Plus Jakarta Sans / Noto Sans SC / JetBrains Mono（与桌面端一致）。
+   布局：单列评审页，每个概念 = 大标志 + 尺寸梯 + 变体 + 应用场景条。 */
+:root {
+  --bg: #ffffff;
+  --fg: #16181d;
+  --card: #ffffff;
+  --border: rgba(22, 24, 29, 0.115);
+  --border-hover: rgba(22, 24, 29, 0.18);
+  --muted: #f1f2f4;
+  --muted-fg: #5a5e65;
+  --accent: #00919b;
+  --primary: #0c0e13;
+  --primary-fg: #ffffff;
+  --panel-dark: #0f1015;
+  --panel-dark-fg: #edeef3;
+  --panel-dark-border: rgba(255, 255, 255, 0.1);
+  --font-display: "Plus Jakarta Sans", "Noto Sans SC", "Segoe UI", sans-serif;
+  --font-body: "Plus Jakarta Sans", "Noto Sans SC", "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #07080c;
+    --fg: #edeef3;
+    --card: #0f1015;
+    --border: rgba(255, 255, 255, 0.1);
+    --border-hover: rgba(255, 255, 255, 0.16);
+    --muted: #15171c;
+    --muted-fg: #898c95;
+    --accent: #14bbc2;
+    --primary: #edeef3;
+    --primary-fg: #07080c;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #07080c;
+  --fg: #edeef3;
+  --card: #0f1015;
+  --border: rgba(255, 255, 255, 0.1);
+  --border-hover: rgba(255, 255, 255, 0.16);
+  --muted: #15171c;
+  --muted-fg: #898c95;
+  --accent: #14bbc2;
+  --primary: #edeef3;
+  --primary-fg: #07080c;
+  color-scheme: dark;
+}
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-body);
+  font-size: 14px;
+  line-height: 1.65;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.wrap { max-width: 980px; margin: 0 auto; padding-block: 40px 56px; }
+
+/* ---------- 页头 ---------- */
+.top { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+h1 { font-size: 22px; font-weight: 800; letter-spacing: -0.01em; margin: 0; }
+.sub { color: var(--muted-fg); font-size: 12.5px; margin-top: 4px; }
+.theme-toggle {
+  font: 600 12px/1 var(--font-body);
+  color: var(--muted-fg);
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+.theme-toggle:hover { border-color: var(--border-hover); color: var(--fg); }
+.theme-toggle:focus-visible, .concept:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.criteria {
+  display: flex; gap: 20px; flex-wrap: wrap;
+  border: 1px solid var(--border); border-radius: 8px;
+  padding: 12px 16px; margin-top: 22px;
+  color: var(--muted-fg); font-size: 12px;
+}
+.criteria b { color: var(--fg); font-weight: 600; }
+
+/* ---------- 概念卡 ---------- */
+.concept {
+  margin-top: 34px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 24px;
+  cursor: pointer;
+  transition: border-color 150ms ease;
+}
+@media (prefers-reduced-motion: no-preference) { .concept:hover { border-color: var(--border-hover); } }
+.concept[aria-pressed="true"] { border-color: var(--accent); }
+.concept-head { display: flex; gap: 20px; align-items: center; flex-wrap: wrap; }
+.hero-mark { flex: 0 0 auto; }
+.concept-no {
+  font: 600 11px/1 var(--font-mono);
+  color: var(--accent);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.concept-name { font-size: 17px; font-weight: 700; margin: 6px 0 4px; letter-spacing: -0.01em; }
+.concept-why { color: var(--muted-fg); font-size: 12.5px; max-width: 560px; min-width: 0; }
+.picked-chip {
+  margin-left: auto;
+  font: 600 11px/1 var(--font-body);
+  color: var(--primary-fg);
+  background: var(--accent);
+  border-radius: 999px;
+  padding: 6px 10px;
+}
+.picked-chip[hidden] { display: none !important; }
+
+/* 尺寸梯 */
+.row-label {
+  font: 600 11px/1 var(--font-body);
+  color: var(--muted-fg);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  margin: 22px 0 10px;
+}
+.ramp { display: flex; align-items: flex-end; gap: 22px; flex-wrap: wrap; }
+.ramp figure { margin: 0; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.ramp figcaption { font: 400 10px/1 var(--font-mono); color: var(--muted-fg); font-variant-numeric: tabular-nums; }
+
+/* 变体排 */
+.variants { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+.variant {
+  border: 1px solid var(--border); border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  height: 96px;
+}
+.variant.dark { background: var(--panel-dark); border-color: var(--panel-dark-border); }
+.variant.tile { background: var(--primary); border-color: transparent; }
+.vcell { display: flex; flex-direction: column; align-items: center; gap: 7px; }
+.vcell span { font: 400 10px/1 var(--font-mono); color: var(--muted-fg); }
+.variant.dark span { color: var(--panel-dark-fg); opacity: 0.65; }
+.variant.tile span { color: var(--primary-fg); opacity: 0.65; }
+
+/* 应用场景条 */
+.scene { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+.scene .box { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.scene .cap { font: 400 10px/1 var(--font-mono); color: var(--muted-fg); padding: 8px 12px; border-top: 1px solid var(--border); }
+.scene .stage { padding: 14px; display: flex; align-items: center; justify-content: center; min-height: 84px; }
+.scene .stage.dark { background: var(--panel-dark); }
+
+/* 侧栏品牌行 mock */
+.side-mock { display: flex; align-items: center; gap: 10px; padding: 12px 14px; width: max-content; }
+.side-mock.w { background: var(--card); }
+.side-mock.b { background: var(--panel-dark); }
+.side-mock .t1 { font-size: 15px; font-weight: 800; letter-spacing: -0.01em; }
+.side-mock .t2 { font-size: 10px; margin-top: 2px; }
+.side-mock.w .t1 { color: var(--fg); } .side-mock.w .t2 { color: var(--muted-fg); }
+.side-mock.b .t1 { color: var(--panel-dark-fg); } .side-mock.b .t2 { color: var(--panel-dark-fg); opacity: 0.55; }
+
+/* 任务栏 / 标签页 mock */
+.taskbar-tile { width: 44px; height: 44px; border-radius: 8px; background: var(--primary); display: flex; align-items: center; justify-content: center; }
+.tab-mock {
+  display: flex; align-items: center; gap: 8px;
+  background: var(--muted); border: 1px solid var(--border); border-radius: 8px 8px 0 0;
+  padding: 9px 14px; font-size: 12px; font-weight: 600; color: var(--fg);
+  width: max-content;
+}
+
+.foot { margin-top: 40px; color: var(--muted-fg); font-size: 12.5px; }
+</style>
+
+<div class="wrap">
+  <div class="top">
+    <div>
+      <h1>NeoLink Logo — 三个方向</h1>
+      <div class="sub">NL 设计系统 · M0 品牌标选型 · 点击卡片选中</div>
+    </div>
+    <button class="theme-toggle" id="themeBtn" type="button">切换亮/暗</button>
+  </div>
+
+  <div class="criteria">
+    <span><b>16px 可辨</b> 尺寸梯最后一档仍读得出结构</span>
+    <span><b>单墨成立</b> 纯 ink 无色也完整，accent 只允许一处</span>
+    <span><b>令牌同源</b> 颜色全部取自 NL 令牌，圆角走 NLRadii</span>
+  </div>
+
+  <div id="concepts"></div>
+
+  <div class="foot">
+    选定后落地：导出 256/48/32/16 PNG 并合成 <span style="font-family:var(--font-mono)">app_icon.ico</span>（windows/runner/resources）、侧栏占位块替换为本标志、README 增加品牌一节。
+  </div>
+</div>
+
+<script>
+"use strict";
+
+// ---- 参数化标志：全部返回 viewBox 0 0 96 96 的 SVG 字符串 ----
+const P = (d, stroke, w) => `<path d="${d}" fill="none" stroke="${stroke}" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round"/>`;
+const C = (cx, cy, r, fill) => `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${fill}"/>`;
+const svg = (inner) => `<svg viewBox="0 0 96 96" width="100%" height="100%" aria-hidden="true">${inner}</svg>`;
+
+// A 链·N —— 字形 N，对角线在中心断开，由节点圆续接：正在建立的链路
+const markN = (ink, accent, useAccent) => svg(
+  P("M24 22 V74", ink, 9) + P("M72 22 V74", ink, 9) +
+  P("M26 24 L40 39", ink, 9) + P("M56 57 L70 72", ink, 9) +
+  C(48, 48, 8, useAccent ? accent : ink)
+);
+
+// B 环·镜 —— 六片光圈弧 + 中心圆点：低功耗摄像头之眼
+const markAperture = (ink, accent, useAccent) => {
+  let s = "";
+  for (let k = 0; k < 6; k++) {
+    const a0 = (k * 60 + 12) * Math.PI / 180, a1 = (k * 60 + 48) * Math.PI / 180;
+    const x0 = (48 + 30 * Math.cos(a0)).toFixed(1), y0 = (48 + 30 * Math.sin(a0)).toFixed(1);
+    const x1 = (48 + 30 * Math.cos(a1)).toFixed(1), y1 = (48 + 30 * Math.sin(a1)).toFixed(1);
+    s += P(`M${x0} ${y0} A30 30 0 0 1 ${x1} ${y1}`, useAccent && k === 1 ? accent : ink, 9);
+  }
+  return svg(s + C(48, 48, 9, ink));
+};
+
+// C 框·链 —— 取景框四角 + 端点成对的斜向链：框住设备，建立连接
+const markFrame = (ink, accent, useAccent) => svg(
+  P("M22 38 V22 H38", ink, 9) + P("M58 22 H74 V38", ink, 9) +
+  P("M74 58 V74 H58", ink, 9) + P("M38 74 H22 V58", ink, 9) +
+  P("M36 60 L60 36", useAccent ? accent : ink, 7) +
+  C(33, 63, 6.5, ink) + C(63, 33, 6.5, ink)
+);
+
+const CONCEPTS = [
+  {
+    id: "A", name: "链 · N", mark: markN,
+    why: "字形资产最直接：N 的对角线在中心断开、由一枚节点圆续接 —— 「正在建立的链路」。配网动作本身进了字母。accent 版本只点亮中心节点。",
+  },
+  {
+    id: "B", name: "环 · 镜", mark: markAperture,
+    why: "六片光圈弧 + 中心圆点，是低功耗摄像头之眼。设备身份优先于工具身份；accent 版本点亮一片刃，暗示开合。",
+  },
+  {
+    id: "C", name: "框 · 链", mark: markFrame,
+    why: "取景框四角 + 端点成对的斜向链：框住设备、建立连接 —— 正是扫描页的动作语言（QR 取景）。accent 版本点亮链线。",
+  },
+];
+
+const fg = () => getComputedStyle(document.documentElement).getPropertyValue("--fg").trim();
+const accent = () => getComputedStyle(document.documentElement).getPropertyValue("--accent").trim();
+const pfg = () => getComputedStyle(document.documentElement).getPropertyValue("--primary-fg").trim();
+const panelFg = "#edeef3";
+
+const sizeRamp = (m) => [16, 20, 24, 32, 48, 96]
+  .map((px) => `<figure><div style="width:${px}px;height:${px}px">${m(fg(), accent(), false)}</div><figcaption>${px}</figcaption></figure>`)
+  .join("");
+
+const variantCell = (label, m, opts) =>
+  `<div class="variant ${opts.cls || ""}"><div class="vcell"><div style="width:44px;height:44px">${m(opts.ink, accent(), opts.useAccent)}</div><span>${label}</span></div></div>`;
+
+function render() {
+  const root = document.getElementById("concepts");
+  root.innerHTML = CONCEPTS.map((c) => `
+    <section class="concept" id="c-${c.id}" role="button" tabindex="0" aria-pressed="false">
+      <div class="concept-head">
+        <div class="hero-mark" style="width:96px;height:96px">${c.mark(fg(), accent(), true)}</div>
+        <div style="min-width:0;flex:1">
+          <div class="concept-no">方向 ${c.id}</div>
+          <div class="concept-name">${c.name}</div>
+          <div class="concept-why">${c.why}</div>
+        </div>
+        <span class="picked-chip" hidden>已选</span>
+      </div>
+      <div class="row-label">尺寸梯（px）</div>
+      <div class="ramp">${sizeRamp(c.mark)}</div>
+      <div class="row-label">变体</div>
+      <div class="variants">
+        ${variantCell("单墨", c.mark, { ink: fg() })}
+        ${variantCell("单墨 · 暗底", c.mark, { ink: panelFg, cls: "dark" })}
+        ${variantCell("accent", c.mark, { ink: fg(), useAccent: true })}
+        ${variantCell("反白 · 主色砖", c.mark, { ink: pfg(), cls: "tile" })}
+      </div>
+      <div class="row-label">应用场景</div>
+      <div class="scene">
+        <div class="box">
+          <div class="stage"><div class="side-mock w"><div style="width:22px;height:22px">${c.mark(fg(), accent(), false)}</div><div><div class="t1">NeoLink</div><div class="t2">低功耗摄像头 · 配网与配置工具</div></div></div></div>
+          <div class="cap">sidebar / 亮</div>
+        </div>
+        <div class="box">
+          <div class="stage dark"><div class="side-mock b"><div style="width:22px;height:22px">${c.mark(panelFg, accent(), false)}</div><div><div class="t1">NeoLink</div><div class="t2">低功耗摄像头 · 配网与配置工具</div></div></div></div>
+          <div class="cap">sidebar / 暗</div>
+        </div>
+        <div class="box">
+          <div class="stage"><div class="taskbar-tile"><div style="width:26px;height:26px">${c.mark(pfg(), accent(), false)}</div></div></div>
+          <div class="cap">任务栏 44px 砖</div>
+        </div>
+        <div class="box">
+          <div class="stage"><div class="tab-mock"><div style="width:16px;height:16px">${c.mark(fg(), accent(), false)}</div>NeoLink</div></div>
+          <div class="cap">标签页 16px</div>
+        </div>
+      </div>
+    </section>`).join("");
+
+  let saved = null;
+  try { saved = localStorage.getItem("neolink-logo-choice"); } catch (e) { /* 私密模式等 */ }
+  if (saved) applyChoice(saved, false);
+
+  root.querySelectorAll(".concept").forEach((el) => {
+    const choose = () => applyChoice(el.id.slice(2), true);
+    el.addEventListener("click", choose);
+    el.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); choose(); }
+    });
+  });
+}
+
+function applyChoice(id, save) {
+  document.querySelectorAll(".concept").forEach((el) => {
+    const on = el.id === `c-${id}`;
+    el.setAttribute("aria-pressed", on ? "true" : "false");
+    el.querySelector(".picked-chip").hidden = !on;
+  });
+  if (save) { try { localStorage.setItem("neolink-logo-choice", id); } catch (e) { /* 同上 */ } }
+}
+
+// 主题切换：显式设置 data-theme（同时覆盖系统偏好）
+const btn = document.getElementById("themeBtn");
+btn.addEventListener("click", () => {
+  const r = document.documentElement;
+  const dark = !((r.dataset.theme === "dark") ||
+    (!r.dataset.theme && matchMedia("(prefers-color-scheme: dark)").matches));
+  r.dataset.theme = dark ? "dark" : "light";
+  render();
+});
+
+render();
+</script>

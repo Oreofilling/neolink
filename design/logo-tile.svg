@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" role="img" aria-label="NeoLink">
+  <!-- 链·N（主色砖）：elevated ink 圆角砖 + 反白标 + 暗面 accent 节点；app 图标基形。 -->
+  <rect width="96" height="96" rx="21" fill="#16181D"/>
+  <g stroke="#FFFFFF" stroke-width="9" stroke-linecap="round" fill="none">
+    <path d="M24 22 V74"/>
+    <path d="M72 22 V74"/>
+    <path d="M26 24 L40 39"/>
+    <path d="M56 57 L70 72"/>
+  </g>
+  <circle cx="48" cy="48" r="8" fill="#14BBC2"/>
+</svg>

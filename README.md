@@ -18,8 +18,10 @@ neolink/
 │   ├── provisioning_session/# 配置会话状态机（M2 填充）
 │   ├── communication_domain/# 节 schema 与校验（M3 填充）
 │   └── test_vectors/        # 协议黄金向量（M1 填充）
+├── design/                  # 品牌标（链·N）：SVG 母版 / 概念稿 / PNG
 ├── tool/ci.sh               # CI 入口
-└── tool/gen_tokens.py       # 设计令牌再生成（OKLCH→Dart）
+├── tool/gen_tokens.py       # 设计令牌再生成（OKLCH→Dart）
+└── tool/gen_app_icon.py     # 品牌标 → app_icon.ico + 多尺寸 PNG
 ```
 
 ## 中英双语（i18n）
@@ -28,7 +30,7 @@ neolink/
 - 文案位置：`apps/desktop_app/lib/l10n/app_*.arb`；查表扩展 `lib/l10n/labels.dart`。
 - 规则：**neolink_ui 组件不硬编码文案**（label 一律由应用层传入并本地化）；新增语言 = 新增一个 ARB 文件。
 - 语言与主题同为工具设置项（允许持久化，M2 接入）。
-- CI 在 `windows/` 目录缺失时用 `flutter create --platforms=windows .` 引导生成 runner（真机 M0 验收后建议将 `windows/` 提交入库以便定制图标/版本）。
+- `windows/` runner 已入库（自定义 `app_icon.ico`），CI 不再引导生成。
 - 本地改词后跑 `flutter gen-l10n`（apps/desktop_app，产出 `lib/l10n/app_localizations*.dart`，已 gitignore；CI 自动执行）。
 
 ## 命令
@@ -46,11 +48,25 @@ cd apps/desktop_app && flutter run -d windows
 （NL 设计系统）的 OKLCH 令牌生成，亮/暗两套，经 `ThemeExtension` 注册；
 Widget 内用 `context.nl.background` 等访问。修改设计时改原型后重新生成，勿手改。
 
+## 品牌标（链·N）
+
+- 母版 `design/logo.svg`（单墨 currentColor，随语境着色）；`design/logo-accent.svg`
+  （accent 只出现在中心节点）；`design/logo-tile.svg`（elevated ink 圆角砖 + 反白标，
+  App 图标基形）。概念与备选见 `design/logo-concepts.html`。
+- App 图标与 PNG 由 `tool/gen_app_icon.py` 生成：
+  `apps/desktop_app/windows/runner/resources/app_icon.ico`（16–256，
+  ≤24px 用简化形：连续对角线）与 `design/png/` 多尺寸导出。
+- UI 内一律用 `NLLogo` 组件（neolink_ui），不贴图；改几何时同步
+  母版 / 组件 / 生成脚本三处（同为 0..96 坐标空间）。
+
 ## M0 状态
 
 - [x] monorepo 结构（apps + packages，path 依赖）
 - [x] neolink_ui：OKLCH 令牌 / 卡片 / 按钮 / 徽章 / 骨架屏 / 下划线 tabs / 亮暗主题
 - [x] desktop_app 空壳：侧栏导航 + 顶栏主题/语言切换 + 页面占位
 - [x] 中英双语：gen-l10n + ARB（zh 模板），文案全走 AppLocalizations
+- [x] 品牌标：链·N 母版 + NLLogo 组件（侧栏已接） + app 图标
+- [x] 字体内置：Plus Jakarta Sans / Noto Sans SC / JetBrains Mono（OFL，pubspec 静态注册）
+- [x] windows/ runner 入库；Win 构建机本机 release 构建通过
 - [x] CI：Windows runner analyze + test + build
-- [ ] Win10/Win11 本机构建验证（无 SDK 环境生成，首跑 CI 可能需小幅 API 适配）
+- [ ] CI 产物 Win10/11 真机验收（图标 / 字体 / 安装体验）
