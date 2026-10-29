@@ -14,8 +14,13 @@ void main() {
       expect(v.advData[4], 0x21, reason: '${v.id} AD Type');
       expect(v.advData.sublist(5, 21), kServiceUuidLe, reason: '${v.id} UUID 小端');
       final flags = v.advData[26];
-      expect((v.expect['busy'] as bool?) ?? false, (flags & 0x01) != 0, reason: '${v.id} BUSY 位');
-      if (v.expect['comboViolation'] == null && v.expect['reservedBitsIgnored'] == null) {
+      // 位一致性仅对负载可解释的向量成立：format_version 不支持时后续字段
+      // 一律不解释（协议 §4.2.2），Server 违规组合与保留位置 1 的向量各有专门语义。
+      final payloadReliable = v.expect['formatVersionSupported'] != false &&
+          v.expect['comboViolation'] == null &&
+          v.expect['reservedBitsIgnored'] == null;
+      if (payloadReliable) {
+        expect((v.expect['busy'] as bool?) ?? false, (flags & 0x01) != 0, reason: '${v.id} BUSY 位');
         expect((v.expect['provisionable'] as bool?) ?? false, (flags & 0x02) != 0,
             reason: '${v.id} PROVISIONABLE 位');
       }
