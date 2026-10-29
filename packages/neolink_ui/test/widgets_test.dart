@@ -27,4 +27,21 @@ void main() {
     await tester.pump(const Duration(milliseconds: 300));
     expect(find.byType(NLSkeleton), findsOneWidget);
   });
+
+  testWidgets('NLLogo 亮暗主题与反白变体渲染', (tester) async {
+    for (final brightness in [Brightness.light, Brightness.dark]) {
+      await tester.pumpWidget(MaterialApp(
+        theme: nlTheme(brightness),
+        home: const Scaffold(
+          body: Row(children: [
+            NLLogo(size: 22), // 简化形
+            NLLogo(size: 32), // 完整形
+            NLLogo(size: 32, onPrimary: true), // 主色砖反白
+          ]),
+        ),
+      ));
+      expect(find.byType(NLLogo), findsNWidgets(3));
+      expect(tester.takeException(), isNull);
+    }
+  });
 }

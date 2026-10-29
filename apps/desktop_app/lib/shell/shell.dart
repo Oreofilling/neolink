@@ -81,7 +81,7 @@ class _AppShellState extends State<AppShell> {
           padding: const EdgeInsets.fromLTRB(16, 18, 16, 14),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Row(children: [
-              Container(width: 22, height: 22, decoration: BoxDecoration(color: c.primary, borderRadius: BorderRadius.circular(6))),
+              const NLLogo(size: 22),
               const SizedBox(width: 8),
               const Text('NeoLink', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800)),
             ]),
