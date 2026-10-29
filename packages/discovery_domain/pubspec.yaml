@@ -1,0 +1,10 @@
+name: discovery_domain
+description: 设备发现领域层（三路通道与候选归一化，M2 填充适配器）
+publish_to: none
+version: 0.1.0
+environment:
+  sdk: ^3.5.0
+dependencies:
+dev_dependencies:
+  test: ^1.24.0
+  lints: ^4.0.0

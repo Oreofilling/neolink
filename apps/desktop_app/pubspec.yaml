@@ -1,0 +1,31 @@
+name: desktop_app
+description: NeoLink Windows 桌面端（P0 首发参考实现入口）
+publish_to: none
+version: 0.1.0
+environment:
+  sdk: ^3.5.0
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  intl: any
+  neolink_ui:
+    path: ../../packages/neolink_ui
+  ct_prov_core:
+    path: ../../packages/ct_prov_core
+  discovery_domain:
+    path: ../../packages/discovery_domain
+  provisioning_session:
+    path: ../../packages/provisioning_session
+  communication_domain:
+    path: ../../packages/communication_domain
+  test_vectors:
+    path: ../../packages/test_vectors
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+flutter:
+  uses-material-design: true
+  generate: true

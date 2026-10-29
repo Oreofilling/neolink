@@ -1,0 +1,10 @@
+name: provisioning_session
+description: 配置会话状态机（M2 填充迁移与资源释放）
+publish_to: none
+version: 0.1.0
+environment:
+  sdk: ^3.5.0
+dependencies:
+dev_dependencies:
+  test: ^1.24.0
+  lints: ^4.0.0

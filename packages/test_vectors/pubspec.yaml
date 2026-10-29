@@ -1,0 +1,10 @@
+name: test_vectors
+description: 协议黄金向量（M1 从协议测试矩阵生成）
+publish_to: none
+version: 0.1.0
+environment:
+  sdk: ^3.5.0
+dependencies:
+dev_dependencies:
+  test: ^1.24.0
+  lints: ^4.0.0

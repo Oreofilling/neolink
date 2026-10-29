@@ -1,0 +1,10 @@
+name: communication_domain
+description: 通讯模式与节配置联合类型（M3 填充字段门控与校验）
+publish_to: none
+version: 0.1.0
+environment:
+  sdk: ^3.5.0
+dependencies:
+dev_dependencies:
+  test: ^1.24.0
+  lints: ^4.0.0
