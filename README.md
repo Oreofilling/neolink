@@ -75,4 +75,5 @@ Widget 内用 `context.nl.background` 等访问。修改设计时改原型后重
 
 - [x] test_vectors：广播/分片/信封三族黄金向量（MTU 23 极限 3825B、九错误码、NE101/NE301 两形态、四类非法输入）
 - [x] ct_prov_core：分片重组/切片 + 信封编解码（2026-10-29，14 测试全绿，切片与黄金帧逐字节一致，BOM 在字节层拒绝）
-- [ ] ble_adapter（universal_ble 候选）与 F1 固件联调 roundtrip
+- [x] ble_adapter：§4 广播/META 解析 + GATT 传输层（2026-10-29，14 测试全绿；CtGattChannel 端口就绪，universal_ble 具体适配器待真机 PoC 验证加密特征访问与 no-bonding 配对）
+- [ ] F1 固件联调 roundtrip（待固件侧接入 CT-Prov/1）

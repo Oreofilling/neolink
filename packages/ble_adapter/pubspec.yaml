@@ -1,0 +1,14 @@
+name: ble_adapter
+description: CT-Prov/1 BLE 适配层（§4 发现解析 + GATT 传输；universal_ble 具体实现待真机 PoC 冻结）
+publish_to: none
+version: 0.1.0
+environment:
+  sdk: ^3.5.0
+dependencies:
+  ct_prov_core:
+    path: ../ct_prov_core
+dev_dependencies:
+  test: ^1.24.0
+  lints: ^4.0.0
+  test_vectors:
+    path: ../test_vectors
