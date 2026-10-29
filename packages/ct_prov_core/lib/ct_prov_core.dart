@@ -1,6 +1,8 @@
 /// CT-Prov/1 v2.0 协议核心（骨架）：操作与错误码已冻结，编解码/分片在 M1 填充。
 /// 协议文档：lowpower_camera/docs/CT_PROV_PROTOCOL.md（无事务模型，C-11）。
 
+library;
+
 /// 协议操作（v2.0 全集：6 个）。
 enum ProvOp {
   deviceInfoGet('device.info.get'),
