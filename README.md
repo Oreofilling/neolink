@@ -28,6 +28,7 @@ neolink/
 - 文案位置：`apps/desktop_app/lib/l10n/app_*.arb`；查表扩展 `lib/l10n/labels.dart`。
 - 规则：**neolink_ui 组件不硬编码文案**（label 一律由应用层传入并本地化）；新增语言 = 新增一个 ARB 文件。
 - 语言与主题同为工具设置项（允许持久化，M2 接入）。
+- CI 在 `windows/` 目录缺失时用 `flutter create --platforms=windows .` 引导生成 runner（真机 M0 验收后建议将 `windows/` 提交入库以便定制图标/版本）。
 - 本地改词后跑 `flutter gen-l10n`（apps/desktop_app，产出 `lib/l10n/app_localizations*.dart`，已 gitignore；CI 自动执行）。
 
 ## 命令

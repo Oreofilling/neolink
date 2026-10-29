@@ -94,8 +94,8 @@ class _AppShellState extends State<AppShell> {
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
             children: [
               for (final (g, items) in _groups) ...[
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(10, 10, 10, 4),
+                const Padding(
+                  padding: EdgeInsets.fromLTRB(10, 10, 10, 4),
                   child: Text(l.groupLabel(g), style: TextStyle(fontSize: 11, color: c.mutedForeground)),
                 ),
                 for (final it in items) _navItem(c, l, it),
