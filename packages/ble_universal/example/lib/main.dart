@@ -3,6 +3,8 @@
 ///
 /// 运行前提：Windows 主机带蓝牙射频（内置或 USB dongle），设备端固件
 /// 已进配置模式并按 §4.2 广播。
+library;
+
 import 'dart:async';
 
 import 'package:ble_universal/ble_universal.dart';
@@ -159,7 +161,7 @@ class _PocHomePageState extends State<PocHomePage> {
                       final record = devices[index];
                       final info = record.info;
                       return ListTile(
-                        title: Text(info.displayName),
+                        title: Text(info.displayName ?? record.deviceId),
                         subtitle: Text(
                           '${record.deviceId}  rssi=${record.rssi ?? '?'}  '
                           '${info.modelCodeName ?? 'unknown model'}',
