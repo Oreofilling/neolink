@@ -85,7 +85,7 @@ void main() {
       final joined = utf8.decode(
         v.frames.expand((f) => f.sublist(kFragmentHeaderSize)).toList(growable: false),
       );
-      expect(joined, expect.jsonText, reason: '${v.id} 重组回读');
+      expect(joined, exp.jsonText, reason: '${v.id} 重组回读');
     }
   });
 
