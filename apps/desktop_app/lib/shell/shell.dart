@@ -80,10 +80,10 @@ class _AppShellState extends State<AppShell> {
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 18, 16, 14),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Row(children: [
-              const NLLogo(size: 22),
-              const SizedBox(width: 8),
-              const Text('NeoLink', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800)),
+            const Row(children: [
+              NLLogo(size: 22),
+              SizedBox(width: 8),
+              Text('NeoLink', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800)),
             ]),
             const SizedBox(height: 4),
             Text(l.brandSubtitle, style: TextStyle(fontSize: 10, color: c.mutedForeground)),
