@@ -1,5 +1,5 @@
 name: ct_prov_core
-description: CT-Prov/1 v2.0 协议核心（操作/错误码骨架，M1 填充编解码与分片）
+description: CT-Prov/1 v2.0 协议核心（分片重组/切片 + 信封编解码 + 操作与错误码）
 publish_to: none
 version: 0.1.0
 environment:
@@ -8,3 +8,5 @@ dependencies:
 dev_dependencies:
   test: ^1.24.0
   lints: ^4.0.0
+  test_vectors:
+    path: ../test_vectors
