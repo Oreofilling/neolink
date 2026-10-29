@@ -121,11 +121,14 @@ class _AppShellState extends State<AppShell> {
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
             child: Row(children: [
-              Text(l.navLabel(it.id),
-                  style: TextStyle(
-                      fontSize: 13,
-                      color: locked ? c.mutedForeground : (active ? c.foreground : c.mutedForeground),
-                      fontWeight: active ? FontWeight.w600 : FontWeight.w500)),
+              Flexible(
+                child: Text(l.navLabel(it.id),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                        fontSize: 13,
+                        color: locked ? c.mutedForeground : (active ? c.foreground : c.mutedForeground),
+                        fontWeight: active ? FontWeight.w600 : FontWeight.w500))),
               if (locked) ...[const Spacer(), Text('·', style: TextStyle(fontSize: 13, color: c.mutedForeground))],
             ]),
           ),
