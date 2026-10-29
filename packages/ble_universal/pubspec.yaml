@@ -1,0 +1,13 @@
+name: ble_universal
+description: CT-Prov/1 universal_ble 具体适配（扫描桥 + GATT 通道实现；Windows 优先真机 PoC 后冻结）
+publish_to: none
+version: 0.1.0
+environment:
+  sdk: ^3.5.0
+dependencies:
+  ble_adapter:
+    path: ../ble_adapter
+  universal_ble: ^3.1.1
+dev_dependencies:
+  test: ^1.24.0
+  lints: ^4.0.0
