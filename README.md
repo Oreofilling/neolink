@@ -12,7 +12,7 @@
 neolink/
 ├── apps/desktop_app/        # Windows 入口（参考实现）
 ├── packages/
-│   ├── neolink_ui/          # NeoMind 设计系统（OKLCH 令牌 + 基础组件）
+│   ├── neolink_ui/          # NL 设计系统（OKLCH 令牌 + 基础组件）
 │   ├── ct_prov_core/        # CT-Prov/1 编解码、分片、错误码（M1 填充）
 │   ├── discovery_domain/    # 三路发现归一化（M2 填充）
 │   ├── provisioning_session/# 配置会话状态机（M2 填充）
@@ -28,6 +28,7 @@ neolink/
 - 文案位置：`apps/desktop_app/lib/l10n/app_*.arb`；查表扩展 `lib/l10n/labels.dart`。
 - 规则：**neolink_ui 组件不硬编码文案**（label 一律由应用层传入并本地化）；新增语言 = 新增一个 ARB 文件。
 - 语言与主题同为工具设置项（允许持久化，M2 接入）。
+- 本地改词后跑 `flutter gen-l10n`（apps/desktop_app，产出 `lib/l10n/app_localizations*.dart`，已 gitignore；CI 自动执行）。
 
 ## 命令
 
@@ -41,7 +42,7 @@ cd apps/desktop_app && flutter run -d windows
 ## 设计令牌
 
 `packages/neolink_ui/lib/src/tokens.dart` 由 `tool/gen_tokens.py` 从原型
-（NeoMind 设计系统）的 OKLCH 令牌生成，亮/暗两套，经 `ThemeExtension` 注册；
+（NL 设计系统）的 OKLCH 令牌生成，亮/暗两套，经 `ThemeExtension` 注册；
 Widget 内用 `context.nl.background` 等访问。修改设计时改原型后重新生成，勿手改。
 
 ## M0 状态

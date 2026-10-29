@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../theme.dart';
 import '../tokens.dart';
 
 enum NLBadgeVariant { success, warning, error, info, muted }

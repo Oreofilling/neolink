@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../tokens.dart';
+import '../theme.dart';
 
 /// 下划线 tabs（非胶囊）：指示线为前景色 2px，无背景条。
 class NLTabBar extends StatelessWidget implements PreferredSizeWidget {

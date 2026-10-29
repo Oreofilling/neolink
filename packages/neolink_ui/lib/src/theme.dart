@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'tokens.dart';
 
-/// NeoMind 风格主题：静态卡片仅边框、下划线 tabs、单色 primary、骨架屏加载。
+/// NL 设计系统主题：静态卡片仅边框、下划线 tabs、单色 primary、骨架屏加载。
 /// 状态/扩展色通过 ThemeExtension（NLColors）下发，Widget 用 context.nl 访问。
 ThemeData nlTheme(Brightness brightness) {
   final colors = brightness == Brightness.light ? NLColors.light : NLColors.dark;

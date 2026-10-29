@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_gen/gen_l10n/app_localizations.dart';
+import 'l10n/app_localizations.dart';
 import 'package:neolink_ui/neolink_ui.dart';
 
 import 'shell/shell.dart';
@@ -19,7 +19,7 @@ class _NeoLinkAppState extends State<NeoLinkApp> {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      onGenerateTitle: (_, __) => 'NeoLink',
+      onGenerateTitle: (_) => 'NeoLink',
       debugShowCheckedModeBanner: false,
       theme: nlTheme(Brightness.light),
       darkTheme: nlTheme(Brightness.dark),

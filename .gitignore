@@ -7,3 +7,7 @@ build/
 .fvm/
 pubspec.lock
 coverage/
+
+# flutter gen-l10n 生成物（CI/本地 gen-l10n 产出）
+apps/desktop_app/lib/l10n/app_localizations.dart
+apps/desktop_app/lib/l10n/app_localizations_*.dart

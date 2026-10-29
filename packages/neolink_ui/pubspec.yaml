@@ -1,5 +1,5 @@
 name: neolink_ui
-description: NeoMind 设计系统 for NeoLink（令牌/主题/基础组件）
+description: NL 设计系统（NeoLink Design System）（令牌/主题/基础组件）
 publish_to: none
 version: 0.1.0
 environment:

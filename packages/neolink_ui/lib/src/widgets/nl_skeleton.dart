@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../theme.dart';
 import '../tokens.dart';
 
 /// 骨架屏（加载态不用转圈）：shimmer 渐变横移，动画只动 transform/渐变相位。

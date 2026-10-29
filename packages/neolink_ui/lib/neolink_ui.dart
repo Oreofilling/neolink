@@ -1,4 +1,4 @@
-/// NeoMind 设计系统 for NeoLink：令牌、主题与基础组件。
+/// NL 设计系统（NeoLink Design System）：令牌、主题与基础组件。
 export 'src/tokens.dart';
 export 'src/theme.dart';
 export 'src/widgets/nl_badge.dart';

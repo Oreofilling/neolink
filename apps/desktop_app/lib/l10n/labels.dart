@@ -1,4 +1,4 @@
-import 'package:flutter_gen/gen_l10n/app_localizations.dart';
+import 'app_localizations.dart';
 
 /// 导航组 / 导航项 / 页面标题 的本地化查表（键 → ARB 文案）。
 /// 页面标题复用导航词条，避免两套译文漂移。
