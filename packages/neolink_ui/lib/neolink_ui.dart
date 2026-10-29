@@ -1,4 +1,6 @@
 /// NL 设计系统（NeoLink Design System）：令牌、主题与基础组件。
+
+library;
 export 'src/tokens.dart';
 export 'src/theme.dart';
 export 'src/widgets/nl_badge.dart';
