@@ -62,9 +62,9 @@ void main() {
 
   test('分片向量（合法）：头字段、片尺寸、payload_max 约定与重组总量', () {
     for (final v in kFragmentVectors) {
-      final expect = v.expect;
-      if (expect is! Reassembled) continue;
-      final bytes = utf8.encode(expect.jsonText);
+      final exp = v.expect;
+      if (exp is! Reassembled) continue;
+      final bytes = utf8.encode(exp.jsonText);
       final maxPayload = v.mtu - 3 - kFragmentHeaderSize;
       expect(v.frames.length, (bytes.length + maxPayload - 1) ~/ maxPayload, reason: '${v.id} 片数');
       var total = 0;
@@ -95,8 +95,8 @@ void main() {
     for (final f in v.frames) {
       expect(f.length, 20, reason: '5 字节头 + 15 字节负载 = MTU-3');
     }
-    final expect = v.expect as Reassembled;
-    expect(expect.jsonText.length, 3825);
+    final reassembled = v.expect as Reassembled;
+    expect(reassembled.jsonText.length, 3825);
   });
 
   test('分片向量（违规）：每种拒绝理由的输入确实呈现对应违规', () {
@@ -199,9 +199,12 @@ void main() {
     expect(kFragmentVectors.length, 12);
     expect(kEnvelopeVectors.length, 32);
     final ids = [
-      ...kAdvertisingVectors, ...kNameVectors, ...kMetaVectors, //
-      ...kFragmentVectors, ...kEnvelopeVectors,
-    ].map((v) => v.id);
+      ...kAdvertisingVectors.map((v) => v.id), //
+      ...kNameVectors.map((v) => v.id),
+      ...kMetaVectors.map((v) => v.id),
+      ...kFragmentVectors.map((v) => v.id),
+      ...kEnvelopeVectors.map((v) => v.id),
+    ];
     expect(ids.toSet().length, ids.length, reason: '全部向量 id 唯一');
   });
 }
