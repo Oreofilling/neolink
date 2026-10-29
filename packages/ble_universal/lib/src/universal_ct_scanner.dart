@@ -2,6 +2,7 @@
 library;
 
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:ble_adapter/ble_adapter.dart';
 import 'package:universal_ble/universal_ble.dart';
@@ -45,9 +46,8 @@ final class UniversalCtScanner {
     _scanSub = UniversalBle.scanStream.listen(_onDevice);
     try {
       await UniversalBle.startScan(
-        scanFilter: const ScanFilter(
-          withServices: [kCtProvServiceUuid],
-        ),
+        // ScanFilter 构造非 const，服务 UUID 过滤交给平台控制器。
+        scanFilter: ScanFilter(withServices: [kCtProvServiceUuid]),
       );
     } catch (_) {
       // 启动失败不留半开状态：停订阅并原样抛给调用方。

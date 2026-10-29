@@ -11,12 +11,13 @@ void main() {
     test('stripped value (6B) reconstructs the 27-byte layout', () {
       final adv = buildAdvertisingData(kNe301Payload);
       expect(adv, isNotNull);
-      expect(adv!.length, 27);
-      expect(adv.sublist(0, 5), [0x02, 0x01, 0x06, 0x17, 0x21]);
-      expect(adv.sublist(5, 21), kCtProvServiceUuidLe);
-      expect(adv.sublist(21), kNe301Payload);
+      final bytes = adv!;
+      expect(bytes.length, 27);
+      expect(bytes.sublist(0, 5), [0x02, 0x01, 0x06, 0x17, 0x21]);
+      expect(bytes.sublist(5, 21), kCtProvServiceUuidLe);
+      expect(bytes.sublist(21), kNe301Payload);
 
-      final info = parseAdvertisingData(adv);
+      final info = parseAdvertisingData(bytes);
       expect(info, isNotNull);
       expect(info!.modelCodeName, 'NE301');
       expect(info.macSuffix.toUpperCase(), 'AABBCC');

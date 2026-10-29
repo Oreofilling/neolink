@@ -3,6 +3,7 @@
 library;
 
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:ble_adapter/ble_adapter.dart';
 import 'package:universal_ble/universal_ble.dart';
@@ -15,7 +16,7 @@ final class UniversalCtGattChannel implements CtGattChannel {
   UniversalCtGattChannel._(this._deviceId, this._mtu, this.meta);
 
   final String _deviceId;
-  int _mtu;
+  final int _mtu;
   final StreamController<int> _mtuChanges = StreamController<int>.broadcast();
   bool _closed = false;
 
