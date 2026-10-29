@@ -20,7 +20,7 @@ void main() {
       final info = parseAdvertisingData(bytes);
       expect(info, isNotNull);
       expect(info!.modelCodeName, 'NE301');
-      expect(info.macSuffix.toUpperCase(), 'AABBCC');
+      expect(info.macSuffix?.toUpperCase(), 'AABBCC');
       expect(info.formatVersionSupported, isTrue);
     });
 
