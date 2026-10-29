@@ -1,5 +1,5 @@
 name: test_vectors
-description: 协议黄金向量（M1 从协议测试矩阵生成）
+description: CT-Prov/1 协议黄金向量（广播/分片/信封，NE101、NE301 与 NeoLink 共享）
 publish_to: none
 version: 0.1.0
 environment:

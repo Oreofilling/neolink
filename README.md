@@ -17,7 +17,7 @@ neolink/
 │   ├── discovery_domain/    # 三路发现归一化（M2 填充）
 │   ├── provisioning_session/# 配置会话状态机（M2 填充）
 │   ├── communication_domain/# 节 schema 与校验（M3 填充）
-│   └── test_vectors/        # 协议黄金向量（M1 填充）
+│   └── test_vectors/        # CT-Prov/1 黄金向量（广播/分片/信封）
 ├── design/                  # 品牌标（链·N）：SVG 母版 / 概念稿 / PNG
 ├── tool/ci.sh               # CI 入口
 ├── tool/gen_tokens.py       # 设计令牌再生成（OKLCH→Dart）
@@ -69,4 +69,10 @@ Widget 内用 `context.nl.background` 等访问。修改设计时改原型后重
 - [x] 字体内置：Plus Jakarta Sans / Noto Sans SC / JetBrains Mono（OFL，pubspec 静态注册）
 - [x] windows/ runner 入库；Win 构建机本机 release 构建通过
 - [x] CI：Windows runner analyze + test + build
-- [ ] CI 产物 Win10/11 真机验收（图标 / 字体 / 安装体验）
+- [x] CI 产物 Win10/11 真机验收（图标 / 字体 / 安装体验，2026-10-29 通过）
+
+## M1 状态
+
+- [x] test_vectors：广播/分片/信封三族黄金向量（MTU 23 极限 3825B、九错误码、NE101/NE301 两形态、四类非法输入）
+- [ ] ct_prov_core：分片重组 + 信封编解码（消费上述向量）
+- [ ] ble_adapter（universal_ble 候选）与 F1 固件联调 roundtrip
