@@ -105,8 +105,7 @@ class _PocHomePageState extends State<PocHomePage> {
     _rawSub = UniversalBle.scanStream.listen((device) {
       _rawSeen++;
       if (_rawSeen <= 30 || _rawSeen % 50 == 0) {
-        _appendLog('raw#$_rawSeen: '
-            '${device.name.isEmpty ? '(no name)' : device.name} '
+        _appendLog('raw#$_rawSeen: ${device.name ?? '(no name)'} '
             'id=${device.deviceId} rssi=${device.rssi} '
             'svcData=${device.serviceData.keys.toList()}');
       }
