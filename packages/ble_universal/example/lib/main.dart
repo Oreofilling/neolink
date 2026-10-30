@@ -42,6 +42,20 @@ class _PocHomePageState extends State<PocHomePage> {
   StreamSubscription<CtScanRecord>? _recordSub;
   bool _scanning = false;
   bool _busy = false;
+  CtEnvironmentReport? _environment;
+
+  @override
+  void initState() {
+    super.initState();
+    // 启动即自检（SessionPhase.selfChecking 的入口动作）。
+    unawaited(_selfCheck());
+  }
+
+  Future<void> _selfCheck() async {
+    final report = await UniversalCtEnvironment.probe();
+    _appendLog('self-check: ${report.readiness.name} (${report.detail})');
+    if (mounted) setState(() => _environment = report);
+  }
 
   void _appendLog(String line) {
     if (!mounted) return;
@@ -62,6 +76,18 @@ class _PocHomePageState extends State<PocHomePage> {
       return;
     }
     setState(() => _scanning = true);
+    // 扫描门禁：自检未通过先跑修复（授权/开射频），仍不通过则不启动。
+    final environment = _environment;
+    if (environment == null || !environment.canScan) {
+      final report = await UniversalCtEnvironment.ensureReady();
+      _appendLog('self-check: ${report.readiness.name} (${report.detail})');
+      if (mounted) setState(() => _environment = report);
+      if (!report.canScan) {
+        setState(() => _scanning = false);
+        _appendLog('scan aborted: environment not ready');
+        return;
+      }
+    }
     _recordSub = _scanner.records.listen((record) {
       if (!_devices.containsKey(record.deviceId)) {
         _appendLog('found ${record.info.displayName}');
@@ -145,6 +171,20 @@ class _PocHomePageState extends State<PocHomePage> {
       ),
       body: Column(
         children: [
+          ListTile(
+            dense: true,
+            leading: Icon(
+              switch (_environment?.readiness) {
+                CtBleReadiness.ready => Icons.check_circle,
+                CtBleReadiness.transient => Icons.hourglass_top,
+                null => Icons.hourglass_top,
+                _ => Icons.error_outline,
+              },
+            ),
+            title: Text('env: ${_environment?.readiness.name ?? 'checking'}'),
+            subtitle: Text(_environment?.detail ?? 'probing...'),
+            onTap: _busy ? null : _selfCheck,
+          ),
           ListTile(
             leading: Icon(_scanning ? Icons.stop_circle : Icons.bluetooth),
             title: Text(_scanning ? 'Stop scan' : 'Start scan'),

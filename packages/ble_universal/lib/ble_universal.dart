@@ -9,5 +9,6 @@ export 'package:ble_adapter/ble_adapter.dart'
     show CtDiscoveredDevice, CtGattChannel, CtMetaInfo, parseMeta;
 
 export 'src/ct_adv_source.dart';
+export 'src/environment_check.dart';
 export 'src/universal_ct_channel.dart';
 export 'src/universal_ct_scanner.dart';
