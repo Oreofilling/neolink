@@ -10,6 +10,7 @@ import 'dart:async';
 import 'package:ble_universal/ble_universal.dart';
 import 'package:flutter/material.dart';
 import 'package:provisioning_session/provisioning_session.dart';
+import 'package:universal_ble/universal_ble.dart';
 
 void main() {
   runApp(const CtProvPocApp());
@@ -40,6 +41,8 @@ class _PocHomePageState extends State<PocHomePage> {
   final Map<String, CtScanRecord> _devices = <String, CtScanRecord>{};
   final List<String> _log = <String>[];
   StreamSubscription<CtScanRecord>? _recordSub;
+  StreamSubscription<BleDevice>? _rawSub;
+  int _rawSeen = 0;
   bool _scanning = false;
   bool _busy = false;
   CtEnvironmentReport? _environment;
@@ -71,6 +74,8 @@ class _PocHomePageState extends State<PocHomePage> {
       await _scanner.stop();
       await _recordSub?.cancel();
       _recordSub = null;
+      await _rawSub?.cancel();
+      _rawSub = null;
       setState(() => _scanning = false);
       _appendLog('scan stopped');
       return;
@@ -94,12 +99,26 @@ class _PocHomePageState extends State<PocHomePage> {
       }
       setState(() => _devices[record.deviceId] = record);
     });
+    // 诊断：订阅 universal_ble 原始扫描流。前 30 条逐条打日志、其后每 50 条
+    // 打一条，用于区分"插件没送达广播"还是"送达但 CT 解析失败"。
+    _rawSeen = 0;
+    _rawSub = UniversalBle.scanStream.listen((device) {
+      _rawSeen++;
+      if (_rawSeen <= 30 || _rawSeen % 50 == 0) {
+        _appendLog('raw#$_rawSeen: '
+            '${device.name.isEmpty ? '(no name)' : device.name} '
+            'id=${device.deviceId} rssi=${device.rssi} '
+            'svcData=${device.serviceData.keys.toList()}');
+      }
+    });
     try {
       await _scanner.start();
       _appendLog('scanning for CT-Prov service UUID...');
     } catch (error) {
       await _recordSub?.cancel();
       _recordSub = null;
+      await _rawSub?.cancel();
+      _rawSub = null;
       setState(() => _scanning = false);
       _appendLog('scan start failed: $error');
     }
@@ -143,6 +162,7 @@ class _PocHomePageState extends State<PocHomePage> {
   @override
   void dispose() {
     unawaited(_recordSub?.cancel());
+    unawaited(_rawSub?.cancel());
     unawaited(_scanner.dispose());
     super.dispose();
   }
