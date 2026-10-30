@@ -69,4 +69,42 @@ void main() {
       expect(info.nameInvalid, isFalse);
     });
   });
+
+  group('ctInfoFromName', () {
+    test('derives identity from a known model name', () {
+      final info = ctInfoFromName('NE101-BBC6DC');
+      expect(info, isNotNull);
+      expect(info!.modelCode, 0x01);
+      expect(info.modelCodeName, 'NE101');
+      expect(info.macSuffix, 'BBC6DC');
+      expect(info.displayName, 'NE101-BBC6DC');
+      expect(info.advertisedName, 'NE101-BBC6DC');
+      expect(info.nameSource, NameSource.scanResponse);
+      // 广播负载未取到：字段可靠性标注为 false。
+      expect(info.payloadFieldsReliable, isFalse);
+      expect(info.busy, isNull);
+      expect(info.provisionable, isNull);
+    });
+
+    test('unknown model keeps the name but drops the code', () {
+      final info = ctInfoFromName('XY-112233');
+      expect(info, isNotNull);
+      expect(info!.modelCode, isNull);
+      expect(info.modelCodeName, isNull);
+      expect(info.macSuffix, '112233');
+      expect(info.displayName, 'XY-112233');
+    });
+
+    test('rejects non-conforming names', () {
+      expect(ctInfoFromName(null), isNull);
+      expect(ctInfoFromName(''), isNull);
+      expect(ctInfoFromName('ne101-bbc6dc'), isNull); // 小写
+      expect(ctInfoFromName('NE101-bbc6dc'), isNull); // 后缀小写
+      expect(ctInfoFromName('NE101-BBC6DCX'), isNull); // 后缀 7 位
+      expect(ctInfoFromName('NE101-BBC6D'), isNull); // 后缀 5 位
+      expect(ctInfoFromName('N-BBC6DC'), isNull); // MODEL 过短
+      expect(ctInfoFromName('NE101BBC6DC'), isNull); // 缺连字符
+      expect(ctInfoFromName('NE101-P-BBC6DC'), isNull); // 双连字符
+    });
+  });
 }

@@ -45,10 +45,11 @@ final class UniversalCtScanner {
     _scanning = true;
     _scanSub = UniversalBle.scanStream.listen(_onDevice);
     try {
-      await UniversalBle.startScan(
-        // ScanFilter 构造非 const，服务 UUID 过滤交给平台控制器。
-        scanFilter: ScanFilter(withServices: [kCtProvServiceUuid]),
-      );
+      // 不带原生 ScanFilter：Windows 侧 128-bit Service Data 不参与原生
+      // 匹配，带过滤会把目标设备全部丢弃；改为客户端解析过滤
+      // （_onDevice 里非 CT 设备直接跳过）。Android/iOS 的原生过滤
+      // 省电收益由后续平台分支恢复。
+      await UniversalBle.startScan();
     } catch (_) {
       // 启动失败不留半开状态：停订阅并原样抛给调用方。
       await _scanSub?.cancel();
@@ -74,12 +75,20 @@ final class UniversalCtScanner {
 
   void _onDevice(BleDevice device) {
     final value = _serviceDataValue(device);
-    if (value == null) return;
-    final advData = buildAdvertisingData(value);
-    if (advData == null) return;
-    var info = parseAdvertisingData(advData);
+    CtDiscoveredDevice? info;
+    if (value != null) {
+      final advData = buildAdvertisingData(value);
+      if (advData != null) {
+        info = parseAdvertisingData(advData);
+        if (info != null) {
+          info = applyScanResponse(info, buildScanResponse(device.name));
+        }
+      }
+    }
+    // Service Data 缺失/不合规时按 Scan Response 名字兜底（§4.2.1）：
+    // Windows 等平台拿不到 128-bit Service Data，名字仍承载身份。
+    info ??= ctInfoFromName(device.name);
     if (info == null) return;
-    info = applyScanResponse(info, buildScanResponse(device.name));
     final record = CtScanRecord(
       deviceId: device.deviceId,
       rssi: device.rssi,
