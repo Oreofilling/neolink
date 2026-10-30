@@ -139,6 +139,18 @@ class _PocHomePageState extends State<PocHomePage> {
     setState(() => _busy = true);
     final record = _devices[deviceId];
     _appendLog('connect ${record?.info.displayName ?? deviceId}');
+    // 诊断：先连上并枚举一次完整 GATT 表，打印每个服务与特征数——
+    // 观察平台（Windows）真实返回的服务/特征全貌。
+    try {
+      await UniversalBle.connect(deviceId);
+      final services = await UniversalBle.discoverServices(deviceId);
+      final dump = services
+          .map((s) => '${s.uuid}[${s.characteristics.length}]')
+          .join(' ');
+      _appendLog('gatt: ${dump.isEmpty ? '(empty)' : dump}');
+    } catch (error) {
+      _appendLog('gatt dump failed: $error');
+    }
     UniversalCtGattChannel? channel;
     try {
       channel = await UniversalCtGattChannel.open(deviceId);
