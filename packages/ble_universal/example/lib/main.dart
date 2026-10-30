@@ -71,13 +71,7 @@ class _PocHomePageState extends State<PocHomePage> {
   Future<void> _toggleScan() async {
     if (_busy) return;
     if (_scanning) {
-      await _scanner.stop();
-      await _recordSub?.cancel();
-      _recordSub = null;
-      await _rawSub?.cancel();
-      _rawSub = null;
-      setState(() => _scanning = false);
-      _appendLog('scan stopped');
+      await _stopScan('scan stopped');
       return;
     }
     setState(() => _scanning = true);
@@ -118,15 +112,30 @@ class _PocHomePageState extends State<PocHomePage> {
       _recordSub = null;
       await _rawSub?.cancel();
       _rawSub = null;
-      setState(() => _scanning = false);
+      if (mounted) setState(() => _scanning = false);
       _appendLog('scan start failed: $error');
     }
+  }
+
+  /// 停止扫描并回收两侧订阅（toggle 停止与点选设备共用）。
+  Future<void> _stopScan(String reason) async {
+    await _scanner.stop();
+    await _recordSub?.cancel();
+    _recordSub = null;
+    await _rawSub?.cancel();
+    _rawSub = null;
+    if (mounted) setState(() => _scanning = false);
+    _appendLog(reason);
   }
 
   /// 对选中设备跑完一次 F1 往返：连接序列 → device.info.get →
   /// session.close → 断链。任何一步异常都记日志并确保链路回收。
   Future<void> _runRoundtrip(String deviceId) async {
-    if (_busy || _scanning) return;
+    if (_busy) return;
+    // 扫描中点选 = 已找到目标：先停扫再连接，否则只能静默忽略。
+    if (_scanning) {
+      await _stopScan('scan stopped (device selected)');
+    }
     setState(() => _busy = true);
     final record = _devices[deviceId];
     _appendLog('connect ${record?.info.displayName ?? deviceId}');
