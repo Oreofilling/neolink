@@ -153,7 +153,12 @@ class _PocHomePageState extends State<PocHomePage> {
     }
     UniversalCtGattChannel? channel;
     try {
-      channel = await UniversalCtGattChannel.open(deviceId);
+      // onStep：连接序列分步日志（连接/枚举/META/订阅/MTU/配对），
+      // 异常前最后一条即失败点。
+      channel = await UniversalCtGattChannel.open(
+        deviceId,
+        onStep: _appendLog,
+      );
       _appendLog('connected, mtu=${channel.mtu}, '
           'meta name=${channel.meta?.name ?? '?'} '
           'busy=${channel.meta?.busy ?? '?'}');
