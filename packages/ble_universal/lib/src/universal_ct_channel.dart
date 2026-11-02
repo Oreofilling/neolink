@@ -96,7 +96,7 @@ final class UniversalCtGattChannel implements CtGattChannel {
       // Windows 在连接时已自动协商 MTU，这里只是查询实际生效值；查询偶发
       // 失败（GattSession 报错）不阻断连接：退守最小 MTU 23，传输层按更小
       // 分片继续，重组端不受影响。Android 端是真请求，失败同样退守 23。
-      final int mtu;
+      int mtu;
       try {
         mtu = await UniversalBle.requestMtu(deviceId, targetMtu);
       } catch (error) {
@@ -107,14 +107,15 @@ final class UniversalCtGattChannel implements CtGattChannel {
 
       // §4.4：C2D 要求加密链路（Just Works）。仅系统级配对平台主动 pair；
       // 已配对则跳过。Linux/macOS 走连接内加密，pair 调用由上层按需触发。
-      // pair 返回布尔（Windows 端配对失败也不抛异常），false 时照常继续：
-      // 随后的 C2D 写入会被设备以未加密为由拒绝，错误自解释。
+      // pair() 返回 void（Windows 原生层配对失败也只回 bool，不抛异常）：
+      // 配对失败照常继续，随后的 C2D 写入会被设备以未加密为由拒绝，
+      // 那条错误自解释。
       if (BleCapabilities.hasSystemPairingApi) {
         final paired = await UniversalBle.isPaired(deviceId);
         onStep?.call('open: isPaired=$paired');
         if (paired != true) {
-          final pairedNow = await UniversalBle.pair(deviceId);
-          onStep?.call('open: pair()=$pairedNow');
+          await UniversalBle.pair(deviceId);
+          onStep?.call('open: pair() requested');
         }
       }
 
