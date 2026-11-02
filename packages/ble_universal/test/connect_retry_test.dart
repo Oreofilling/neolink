@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:ble_universal/src/enum_retry.dart';
+import 'package:ble_universal/src/connect_retry.dart';
 import 'package:test/test.dart';
 
 void main() {
@@ -9,7 +9,7 @@ void main() {
     var calls = 0;
 
     // Act
-    final result = await runWithEnumRetry(
+    final result = await runWithConnectRetry(
       () async {
         calls++;
         return 'ok';
@@ -22,16 +22,16 @@ void main() {
     expect(calls, 1);
   });
 
-  test('retries after StateError and succeeds on a later attempt', () async {
+  test('retries on any error type by default and succeeds later', () async {
     // Arrange
     var calls = 0;
 
     // Act
-    final result = await runWithEnumRetry<int>(
+    final result = await runWithConnectRetry<int>(
       () async {
         calls++;
         if (calls < 3) {
-          throw StateError('CT-Prov characteristics missing');
+          throw TimeoutException('gatt operation stalled');
         }
         return calls;
       },
@@ -43,31 +43,32 @@ void main() {
     expect(calls, 3);
   });
 
-  test('propagates non-StateError immediately without retry', () async {
+  test('propagates immediately when predicate rejects the error', () async {
     // Arrange
     var calls = 0;
 
     // Act / Assert
     await expectLater(
-      runWithEnumRetry(
+      runWithConnectRetry(
         () async {
           calls++;
-          throw TimeoutException('device slept mid-open');
+          throw TimeoutException('stalled');
         },
         pause: Duration.zero,
+        retryOn: (error) => error is StateError,
       ),
       throwsA(isA<TimeoutException>()),
     );
     expect(calls, 1);
   });
 
-  test('rethrows last StateError after exhausting attempts', () async {
+  test('rethrows last error after exhausting attempts', () async {
     // Arrange
     var calls = 0;
 
     // Act / Assert
     await expectLater(
-      runWithEnumRetry(
+      runWithConnectRetry(
         () async {
           calls++;
           throw StateError('CT-Prov service not found after discovery');
@@ -89,7 +90,7 @@ void main() {
   test('rejects maxAttempts below one', () async {
     // Act / Assert
     await expectLater(
-      runWithEnumRetry(
+      runWithConnectRetry(
         () async => 'unused',
         maxAttempts: 0,
       ),

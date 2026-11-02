@@ -8,7 +8,7 @@ import 'dart:typed_data';
 import 'package:ble_adapter/ble_adapter.dart';
 import 'package:universal_ble/universal_ble.dart';
 
-import 'enum_retry.dart';
+import 'connect_retry.dart';
 
 /// MTU 目标值：247 覆盖 device.info 单帧；Windows 在连接时自动协商，
 /// requestMtu 返回实际生效值。
@@ -28,16 +28,16 @@ final class UniversalCtGattChannel implements CtGattChannel {
   /// 走完 §3 连接序列并返回就绪通道。任一步失败先回滚断开再抛错，
   /// 不留半开连接。
   ///
-  /// Windows 端插件在连接瞬间缓存 GATT 表，偶发缓存到空表
-  /// （真机复现「characteristics missing」）；重发现无效，必须
-  /// 断开重连整轮重试（见 [runWithEnumRetry]）。单轮失败自回滚，
-  /// 设备在断开后立刻重新广播，重连成本约 1-2 秒。
+  /// Windows 端插件在连接瞬间一次性缓存 GATT 表，缓存坏掉（空表/陈旧
+  /// 句柄）后，后续任何基于它的操作（枚举校验、读、订阅）都会挂起或
+  /// 报错，重发现无效，必须断开重连整轮重试（见 [runWithConnectRetry]）。
+  /// 单轮失败自回滚，设备在断开后立刻重新广播，重连成本约 1-2 秒。
   static Future<UniversalCtGattChannel> open(
     String deviceId, {
     int targetMtu = kCtProvTargetMtu,
     Duration timeout = const Duration(seconds: 15),
   }) {
-    return runWithEnumRetry(
+    return runWithConnectRetry(
       () => _openOnce(deviceId, targetMtu: targetMtu, timeout: timeout),
     );
   }
