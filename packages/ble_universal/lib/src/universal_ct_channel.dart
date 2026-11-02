@@ -105,17 +105,21 @@ final class UniversalCtGattChannel implements CtGattChannel {
       }
       onStep?.call('open: mtu=$mtu');
 
-      // §4.4：C2D 要求加密链路（Just Works）。仅系统级配对平台主动 pair；
-      // 已配对则跳过。Linux/macOS 走连接内加密，pair 调用由上层按需触发。
-      // pair() 返回 void（Windows 原生层配对失败也只回 bool，不抛异常）：
-      // 配对失败照常继续，随后的 C2D 写入会被设备以未加密为由拒绝，
-      // 那条错误自解释。
+      // §4.4：C2D 要求加密链路（Just Works）。设备端在连接后主动发安全
+      // 请求驱动配对加密，不依赖客户端；这里的系统级 pair 只是兜底（顺带
+      // 让 Windows 存系统侧密钥）。失败仅记录不阻断——加密是否到位由后续
+      // C2D 写入的设备端裁决给出真话（配对与安全请求并发时 PairAsync 可能
+      // 返回 OperationAlreadyInProgress，属预期噪音）。
       if (BleCapabilities.hasSystemPairingApi) {
-        final paired = await UniversalBle.isPaired(deviceId);
-        onStep?.call('open: isPaired=$paired');
-        if (paired != true) {
-          await UniversalBle.pair(deviceId);
-          onStep?.call('open: pair() requested');
+        try {
+          final paired = await UniversalBle.isPaired(deviceId);
+          onStep?.call('open: isPaired=$paired');
+          if (paired != true) {
+            await UniversalBle.pair(deviceId);
+            onStep?.call('open: pair() requested');
+          }
+        } catch (error) {
+          onStep?.call('open: pair best-effort failed ($error)');
         }
       }
 
