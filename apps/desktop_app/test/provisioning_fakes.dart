@@ -37,17 +37,42 @@ final class FakeSource implements DiscoverySource {
   Future<void> close() => _controller.close();
 }
 
-/// 扮演固件侧的假设备：重组 C2D 帧，按 op 回 device.info.get 与
-/// communication.capabilities.get，其余回 UNSUPPORTED_OPERATION（与
-/// components/ct_prov_ble 行为对齐）。
+/// Fake firmware-side device: reassembles C2D frames and answers
+/// device.info.get / communication.capabilities.get / config.set /
+/// communication.scan / config.get; other ops answer UNSUPPORTED_OPERATION
+/// (aligned with components/ct_prov_ble).
 final class FakeCtDevice implements CtGattChannel {
-  FakeCtDevice({this.mtu = 23, this.rejectDeviceInfo = false});
+  FakeCtDevice({
+    this.mtu = 23,
+    this.rejectDeviceInfo = false,
+    this.capsShape = 'ne101',
+    this.rejectConfigSet,
+    this.supportsConfigGet = true,
+  });
 
   @override
   final int mtu;
 
-  /// device.info.get 一律回错误（能力错误路径用）。
+  /// device.info.get always answers an error (capability failure path).
   final bool rejectDeviceInfo;
+
+  /// Capability shape: 'ne101' (wifi/cellular/mqtt) or 'ne301'
+  /// (comm + wifi incl. bssid + cellular incl. roaming + readonly ethernet +
+  /// mqtt + webhook incl. secret).
+  final String capsShape;
+
+  /// config.set answers this error code instead of storing (e.g.
+  /// FIELD_NOT_SUPPORTED).
+  final String? rejectConfigSet;
+
+  /// false -> config.get answers UNSUPPORTED_OPERATION.
+  final bool supportsConfigGet;
+
+  /// Last config.set data received (payload arrives intact).
+  Map<String, Object?>? lastConfigSet;
+
+  /// Last communication.scan request data (section / cursor).
+  Map<String, Object?>? lastScanRequest;
 
   @override
   Stream<int> get mtuChanges => const Stream.empty();
@@ -105,36 +130,182 @@ final class FakeCtDevice implements CtGattChannel {
       }
     } else if (envelope.opName ==
         ProvOp.communicationCapabilitiesGet.wireName) {
-      // §8 NE101 形态：无 comm 节，wifi 可扫描，当前未配置网络。
+      // §8 shapes: ne101 has no comm section, wifi without bssid, cellular
+      // without roaming; ne301 carries both plus a readonly ethernet node.
+      final ne301 = capsShape == 'ne301';
+      final sections = ne301
+          ? <Map<String, Object?>>[
+              {
+                'name': 'comm',
+                'kind': 'selector',
+                'configurable': true,
+                'scannable': false,
+                'fields': ['type'],
+              },
+              {
+                'name': 'wifi',
+                'kind': 'network',
+                'configurable': true,
+                'scannable': true,
+                'fields': ['ssid', 'password', 'bssid'],
+              },
+              {
+                'name': 'cellular',
+                'kind': 'network',
+                'configurable': true,
+                'scannable': false,
+                'fields': ['apn', 'username', 'password', 'pin', 'auth', 'roaming'],
+              },
+              {
+                'name': 'ethernet',
+                'kind': 'network',
+                'configurable': false,
+                'scannable': false,
+                'fields': <String>[],
+              },
+              {
+                'name': 'mqtt',
+                'kind': 'service',
+                'configurable': true,
+                'scannable': false,
+                'fields': [
+                  'enable',
+                  'host',
+                  'port',
+                  'client_id',
+                  'username',
+                  'password',
+                  'tls',
+                  'topic',
+                  'qos',
+                ],
+              },
+              {
+                'name': 'webhook',
+                'kind': 'service',
+                'configurable': true,
+                'scannable': false,
+                'fields': ['enable', 'url', 'secret', 'header'],
+              },
+            ]
+          : <Map<String, Object?>>[
+              {
+                'name': 'wifi',
+                'kind': 'network',
+                'configurable': true,
+                'scannable': true,
+                'fields': ['ssid', 'password'],
+              },
+              {
+                'name': 'cellular',
+                'kind': 'network',
+                'configurable': true,
+                'scannable': false,
+                'fields': ['apn', 'username', 'password', 'pin', 'auth'],
+              },
+              {
+                'name': 'mqtt',
+                'kind': 'service',
+                'configurable': true,
+                'scannable': false,
+                'fields': ['enable', 'host', 'port'],
+              },
+            ];
       responseJson = encodeResponse(
         id: envelope.id,
         op: '${ProvOp.communicationCapabilitiesGet.wireName}.result',
         ok: true,
         data: <String, Object?>{
-          'sections': [
-            {
-              'name': 'wifi',
-              'kind': 'network',
-              'configurable': true,
-              'scannable': true,
-              'fields': ['ssid', 'password'],
-            },
-            {
-              'name': 'cellular',
-              'kind': 'network',
-              'configurable': true,
-              'fields': ['apn', 'username', 'password', 'pin', 'auth'],
-            },
-            {
-              'name': 'mqtt',
-              'kind': 'service',
-              'configurable': true,
-              'fields': ['enable', 'host', 'port'],
-            },
-          ],
+          'sections': sections,
           'current': {'network': null},
         },
       );
+    } else if (envelope.opName == ProvOp.sessionClose.wireName) {
+      // §11: answer ok, then the device drops the link.
+      responseJson = encodeResponse(
+        id: envelope.id,
+        op: '${ProvOp.sessionClose.wireName}.result',
+        ok: true,
+      );
+    } else if (envelope.opName == ProvOp.configSet.wireName) {
+      lastConfigSet = Map<String, Object?>.from(envelope.data);
+      if (rejectConfigSet case final code?) {
+        responseJson = encodeResponse(
+          id: envelope.id,
+          op: '${ProvOp.configSet.wireName}.result',
+          ok: false,
+          error: ProvError(codeName: code, message: 'field not in fields'),
+        );
+      } else {
+        responseJson = encodeResponse(
+          id: envelope.id,
+          op: '${ProvOp.configSet.wireName}.result',
+          ok: true,
+          data: <String, Object?>{
+            'stored': envelope.data.keys.toList(),
+            'apply': 'reconnect',
+          },
+        );
+      }
+    } else if (envelope.opName == ProvOp.communicationScan.wireName) {
+      lastScanRequest = Map<String, Object?>.from(envelope.data);
+      // Two fixed pages: empty cursor -> page 1 (more), else page 2 (end).
+      final firstPage = (envelope.data['cursor'] ?? '') == '';
+      responseJson = encodeResponse(
+        id: envelope.id,
+        op: '${ProvOp.communicationScan.wireName}.result',
+        ok: true,
+        data: <String, Object?>{
+          'section': envelope.data['section'],
+          'items': firstPage
+              ? [
+                  {
+                    'network_id': 'Office-2.4G',
+                    'display_name': 'Office-2.4G',
+                    'signal': -48,
+                    'channel': 6,
+                  },
+                  {
+                    'network_id': 'CT-HaLow',
+                    'display_name': 'CT-HaLow',
+                    'signal': -71,
+                    'country': 'CN',
+                  },
+                ]
+              : [
+                  {
+                    'network_id': 'Neighbor-5G',
+                    'display_name': 'Neighbor-5G',
+                    'signal': -82,
+                    'channel': 36,
+                  },
+                ],
+          'more': firstPage,
+          'cursor': firstPage ? 'page-2' : '',
+        },
+      );
+    } else if (envelope.opName == 'config.get') {
+      if (!supportsConfigGet) {
+        responseJson = encodeResponse(
+          id: envelope.id,
+          op: 'config.get.result',
+          ok: false,
+          error: const ProvError(
+            codeName: 'UNSUPPORTED_OPERATION',
+            message: 'config.get not supported',
+          ),
+        );
+      } else {
+        responseJson = encodeResponse(
+          id: envelope.id,
+          op: 'config.get.result',
+          ok: true,
+          data: <String, Object?>{
+            'wifi': {'ssid': 'Office-2.4G', 'password': '********'},
+            'mqtt': {'enable': true, 'host': 'mqtt.example.com', 'port': 8883},
+          },
+        );
+      }
     } else {
       responseJson = encodeResponse(
         id: envelope.id,

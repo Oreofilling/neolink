@@ -9,10 +9,14 @@ library;
 import 'dart:async';
 
 import 'package:ble_universal/ble_universal.dart';
+import 'package:communication_domain/communication_domain.dart';
 import 'package:flutter/foundation.dart';
-import 'package:provisioning_session/provisioning_session.dart';
+// 能力侧的 ConfigSection 与 communication_domain 节类型重名：控制器
+// 语境里 ConfigSection 一律指节草稿，能力节只经 capabilities.sections 迭代。
+import 'package:provisioning_session/provisioning_session.dart' hide ConfigSection;
 
 import '../services/environment_probe.dart';
+import 'section_editing.dart';
 
 /// 把桌面端环境探测与三路通道状态映射进会话状态机。
 class ProvisioningController extends ChangeNotifier {
@@ -105,15 +109,16 @@ class ProvisioningController extends ChangeNotifier {
     SessionPhase.readingCapabilities ||
     SessionPhase.connectionError ||
     SessionPhase.capabilityError => 'connect',
-    SessionPhase.choosingSections ||
+    SessionPhase.choosingSections => 'caps',
     SessionPhase.editingConfig ||
     SessionPhase.delivering ||
-    SessionPhase.operationError ||
-    SessionPhase.completed => 'caps',
+    SessionPhase.operationError => 'deliver',
+    SessionPhase.completed => 'result',
     SessionPhase.cleaning => 'scan',
   };
 
-  /// 侧栏解锁：流程页随相位推进，配置/下发组留给 M3。
+  /// 侧栏解锁：流程页随相位推进；表单/结果页随本次编辑会话开放，
+  /// 收尾清理后回到扫描即重新上锁。
   bool isNavUnlocked(String pageId) => switch (pageId) {
     'selfcheck' => true,
     'scan' || 'empty' => _machine.phase != SessionPhase.selfChecking,
@@ -126,6 +131,14 @@ class ProvisioningController extends ChangeNotifier {
       _ => false,
     },
     'caps' => capabilities != null,
+    'deliver' => switch (_machine.phase) {
+      SessionPhase.editingConfig ||
+      SessionPhase.delivering ||
+      SessionPhase.operationError ||
+      SessionPhase.completed => true,
+      _ => false,
+    },
+    'result' => _machine.phase == SessionPhase.completed,
     _ => false,
   };
 
@@ -222,6 +235,311 @@ class ProvisioningController extends ChangeNotifier {
     await _machine.cleanup();
     notifyListeners();
   }
+
+  // ---- M3: form drafts, delivery, network scan ----
+
+  /// Section names in this editing round (capability order, configurable only).
+  List<String> editingSections = const [];
+
+  /// Section name -> form draft (immutable section objects; field-level
+  /// updates flow through section_editing helpers).
+  Map<String, ConfigSection> drafts = const {};
+
+  /// Section name -> current validation problems (per-field marks; empty
+  /// means the section passes).
+  Map<String, List<FieldProblem>> sectionProblems = const {};
+
+  /// Last config.set result (rendered on the completed page).
+  SetConfigResult? deliveryResult;
+
+  /// Whether config.get prefill finished (unsupported/failed both count as
+  /// done; the form stays usable either way).
+  bool prefillDone = false;
+
+  /// Network scan state: target section / fetched items / cursor (the §9
+  /// cursor is only valid within the current connection).
+  String? scanSection;
+  List<ScanNetwork> scanItems = const [];
+  bool scanMore = false;
+  String _scanCursor = '';
+
+  /// communication.scan in flight (scan button state).
+  bool get networkScanning => _networkScanning;
+  bool _networkScanning = false;
+
+  /// Network section names declared by capabilities (comm.type options).
+  Set<String> get declaredNetworks => {
+    for (final section in capabilities?.sections ?? const [])
+      if (section.kind == ConfigSectionKind.network) section.name,
+  };
+
+  /// Editing sections as name -> declared fields (single source for both
+  /// payload assembly and validation).
+  Map<String, List<String>> get _editingSectionFields => {
+    for (final name in editingSections)
+      name:
+          capabilities!.sections
+              .firstWhere((section) => section.name == name)
+              .fields,
+  };
+
+  /// Selection done, enter the form (M3 entry): seed empty drafts ->
+  /// prefill from read-back -> editing phase.
+  Future<void> beginEditing(Set<String> sectionNames) async {
+    if (_machine.phase != SessionPhase.choosingSections) return;
+    final caps = capabilities;
+    if (caps == null) return;
+    final ordered = [
+      for (final section in caps.sections)
+        if (section.configurable && sectionNames.contains(section.name))
+          section.name,
+    ];
+    if (ordered.isEmpty) return;
+    editingSections = ordered;
+    drafts = {
+      for (final name in ordered)
+        name: defaultSectionFor(name, declaredNetworks: declaredNetworks),
+    };
+    sectionProblems = const {};
+    deliveryResult = null;
+    prefillDone = false;
+    scanSection = null;
+    scanItems = const [];
+    scanMore = false;
+    _scanCursor = '';
+    _machine.beginEditing();
+    notifyListeners();
+    // config.get prefill degrades gracefully (unsupported/failed never
+    // blocks the form).
+    unawaited(_prefillDrafts());
+  }
+
+  /// Fills drafts from config.get read-back (declared fields only; masked
+  /// secrets are skipped).
+  Future<void> _prefillDrafts() async {
+    final session = _session;
+    if (session == null) {
+      prefillDone = true;
+      return;
+    }
+    Map<String, Map<String, Object?>>? stored;
+    try {
+      stored = await session.getConfig();
+    } catch (error) {
+      _machine.reportProblem('config_get_failed', '$error');
+    }
+    prefillDone = true;
+    if (stored == null) {
+      notifyListeners();
+      return;
+    }
+    if (_machine.phase != SessionPhase.editingConfig) return;
+    drafts = {
+      for (final entry in drafts.entries)
+        entry.key: prefillSection(
+          entry.value,
+          stored[entry.key] ?? const {},
+          declaredFields: _editingSectionFields[entry.key] ?? const [],
+        ),
+    };
+    _validateDrafts();
+    notifyListeners();
+  }
+
+  /// Field update from the form: store the draft and re-validate that
+  /// section immediately.
+  void updateDraft(ConfigSection section) {
+    if (_machine.phase != SessionPhase.editingConfig) return;
+    if (!editingSections.contains(section.name)) return;
+    drafts = {...drafts, section.name: section};
+    _validateSection(section.name);
+    notifyListeners();
+  }
+
+  void _validateSection(String name) {
+    final problems = validateSection(
+      drafts[name]!,
+      declaredFields: _editingSectionFields[name] ?? const [],
+      declaredNetworks: declaredNetworks,
+    );
+    sectionProblems = {...sectionProblems, name: problems};
+  }
+
+  void _validateDrafts() {
+    for (final name in editingSections) {
+      _validateSection(name);
+    }
+  }
+
+  /// Assembles the payload (shared by form preview and submit; problems are
+  /// grouped into sectionProblems).
+  ConfigPayload assembleDraftPayload() => assembleConfigPayload(
+    drafts,
+    sectionFields: _editingSectionFields,
+  );
+
+  /// Submit: local validation failure stays on the form with per-field
+  /// marks; success means config.set persisted (idempotent overwrite, §10),
+  /// failure keeps the drafts and moves to operationError.
+  Future<void> submit() async {
+    if (_machine.phase != SessionPhase.editingConfig) return;
+    final session = _session;
+    if (session == null) return;
+
+    // Field-level validation runs per section (validateSection reports bare
+    // field names); section-level gating comes from assembly.
+    _validateDrafts();
+    if (sectionProblems.values.any((list) => list.isNotEmpty)) {
+      notifyListeners();
+      return;
+    }
+    final payload = assembleDraftPayload();
+    if (payload.problems.isNotEmpty) {
+      sectionProblems = {
+        for (final problem in payload.problems)
+          problem.field: [problem],
+      };
+      notifyListeners();
+      return;
+    }
+
+    _machine.beginDelivery();
+    notifyListeners();
+    try {
+      deliveryResult = await session.setConfig(payload.payload);
+      _machine.deliveryStored();
+    } on ProvSessionException catch (error) {
+      deliveryResult = null;
+      _machine.failOperation(error.reason, error.message);
+    } catch (error) {
+      deliveryResult = null;
+      _machine.failOperation('config_set_failed', '$error');
+    }
+    notifyListeners();
+  }
+
+  /// Back to the form after a rejected delivery (drafts preserved).
+  void editAgain() {
+    if (_machine.phase != SessionPhase.operationError) return;
+    _machine.editAgain();
+    notifyListeners();
+  }
+
+  /// Finishes the session: §11 close -> release the link -> back to the
+  /// scan loop.
+  Future<void> finishSession() async {
+    if (_machine.phase != SessionPhase.completed) return;
+    final session = _session;
+    if (session != null) {
+      try {
+        await session.closeSession();
+      } catch (_) {
+        // A rejected close does not block: the link is released by the
+        // cleanup path regardless.
+      }
+    }
+    await _machine.cleanup();
+    _clearEditingState();
+    notifyListeners();
+  }
+
+  void _clearEditingState() {
+    editingSections = const [];
+    drafts = const {};
+    sectionProblems = const {};
+    deliveryResult = null;
+    prefillDone = false;
+    scanSection = null;
+    scanItems = const [];
+    scanMore = false;
+    _scanCursor = '';
+  }
+
+  /// Scans networks (§9): only capability-scannable sections; results feed
+  /// the form's SSID picker.
+  Future<void> scanNetworks(String section) async {
+    if (_machine.phase != SessionPhase.editingConfig || _networkScanning) {
+      return;
+    }
+    final session = _session;
+    if (session == null) return;
+    _networkScanning = true;
+    scanSection = section;
+    scanItems = const [];
+    scanMore = false;
+    _scanCursor = '';
+    notifyListeners();
+    try {
+      final result = await session.scanNetworks(section: section);
+      scanItems = result.items;
+      scanMore = result.more;
+      _scanCursor = result.cursor;
+    } on ProvSessionException catch (error) {
+      _machine.reportProblem(error.reason, error.message);
+      scanItems = const [];
+      scanMore = false;
+    } catch (error) {
+      _machine.reportProblem('scan_failed', '$error');
+      scanItems = const [];
+      scanMore = false;
+    } finally {
+      _networkScanning = false;
+      notifyListeners();
+    }
+  }
+
+  /// Cursor-based next page (§9: cursor only valid in this connection).
+  Future<void> loadMoreNetworks() async {
+    if (!_scanMore ||
+        _scanCursor.isEmpty ||
+        _networkScanning ||
+        _machine.phase != SessionPhase.editingConfig) {
+      return;
+    }
+    final session = _session;
+    if (session == null) return;
+    _networkScanning = true;
+    notifyListeners();
+    try {
+      final result = await session.scanNetworks(
+        section: scanSection!,
+        cursor: _scanCursor,
+      );
+      scanItems = [...scanItems, ...result.items];
+      scanMore = result.more;
+      _scanCursor = result.cursor;
+    } on ProvSessionException catch (error) {
+      _machine.reportProblem(error.reason, error.message);
+      scanMore = false;
+    } catch (error) {
+      _machine.reportProblem('scan_failed', '$error');
+      scanMore = false;
+    } finally {
+      _networkScanning = false;
+      notifyListeners();
+    }
+  }
+
+  /// Picks a scan result: writes the SSID into the draft (hidden networks
+  /// are typed manually through the same field).
+  void pickNetwork(ScanNetwork network) {
+    final section = scanSection;
+    if (section == null) return;
+    final draft = drafts[section];
+    if (draft == null) return;
+    var next = applyFieldValue(draft, 'ssid', network.networkId);
+    // halow entries may carry extension fields such as country (§9); only
+    // apply them when the capability declares the field.
+    final country = network.extras['country'];
+    if (section == 'halow' && country is String) {
+      final declared = _editingSectionFields['halow'] ?? const <String>[];
+      if (declared.contains('country')) {
+        next = applyFieldValue(next, 'country', country);
+      }
+    }
+    updateDraft(next);
+  }
+
 
   void _onPhaseChanged(SessionPhase phase) {
     if (phase == SessionPhase.scanning) _startScan();

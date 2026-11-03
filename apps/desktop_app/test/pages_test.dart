@@ -4,6 +4,7 @@ library;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:communication_domain/communication_domain.dart';
 import 'package:provisioning_session/provisioning_session.dart';
 
 import 'package:desktop_app/app.dart';
@@ -143,5 +144,138 @@ void main() {
     // 无候选则二次超时仍收敛回空态（也保证测试收尾无挂起定时器）。
     await tester.pump(const Duration(seconds: 21));
     expect(controller.phase, SessionPhase.scanEmpty);
+  });
+
+  testWidgets('M3 full flow: pick sections -> prefilled form -> deliver -> result -> back to scan',
+      (tester) async {
+    final source = FakeSource();
+    final device = FakeCtDevice();
+    final controller = wiredController(source, device);
+    addTearDown(source.close);
+    addTearDown(device.close);
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(NeoLinkApp(controller: controller));
+    await settle(tester);
+    source.emit(sampleCandidate());
+    await settle(tester);
+    await tester.tap(find.text('连接'));
+    await settle(tester);
+    expect(controller.phase, SessionPhase.choosingSections);
+
+    // Check wifi, enter the form.
+    await tester.tap(find.byType(Checkbox).first);
+    await tester.pump();
+    await tester.tap(find.text('开始配置'));
+    await settle(tester);
+    expect(controller.phase, SessionPhase.editingConfig);
+    expect(find.text('下发确认'), findsWidgets); // page title + sidebar
+
+    // config.get prefill: ssid filled, masked password left empty (an open
+    // network is legal).
+    expect((controller.drafts['wifi'] as WifiSection).ssid, 'Office-2.4G');
+
+    // Type a password, submit.
+    await tester.enterText(find.byType(TextField).at(1), 'example-password');
+    await tester.pump();
+    await tester.ensureVisible(find.text('下发配置'));
+    await tester.pump();
+    await tester.tap(find.text('下发配置'));
+    await settle(tester);
+
+    // Result page: stored list + apply hint + finish back to scan loop.
+    expect(controller.phase, SessionPhase.completed);
+    expect(find.text('已写入 1 个配置节'), findsOneWidget);
+    expect(find.text('wifi'), findsOneWidget);
+    expect(find.text('配置将在网络重连后生效'), findsOneWidget);
+
+    await tester.tap(find.text('完成'));
+    await settle(tester);
+    expect(controller.phase, SessionPhase.scanning);
+    // Pump past the scan window to converge back to empty (also guarantees
+    // no pending timers at teardown).
+    await tester.pump(const Duration(seconds: 21));
+    expect(controller.phase, SessionPhase.scanEmpty);
+  });
+
+  testWidgets('M3 rejection: banner shows the code, back-to-edit keeps values',
+      (tester) async {
+    final source = FakeSource();
+    final device = FakeCtDevice(rejectConfigSet: 'FIELD_NOT_SUPPORTED');
+    final controller = wiredController(source, device);
+    addTearDown(source.close);
+    addTearDown(device.close);
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(NeoLinkApp(controller: controller));
+    await settle(tester);
+    source.emit(sampleCandidate());
+    await settle(tester);
+    await tester.tap(find.text('连接'));
+    await settle(tester);
+
+    await tester.tap(find.byType(Checkbox).first);
+    await tester.pump();
+    await tester.tap(find.text('开始配置'));
+    await settle(tester);
+
+    await tester.enterText(find.byType(TextField).at(1), 'example-password');
+    await tester.pump();
+    await tester.ensureVisible(find.text('下发配置'));
+    await tester.pump();
+    await tester.tap(find.text('下发配置'));
+    await settle(tester);
+
+    expect(controller.phase, SessionPhase.operationError);
+    expect(find.text('下发被拒，已保留所填内容'), findsOneWidget);
+    expect(find.textContaining('FIELD_NOT_SUPPORTED'), findsOneWidget);
+
+    await tester.tap(find.text('返回编辑'));
+    await settle(tester);
+    expect(controller.phase, SessionPhase.editingConfig);
+    // Entries preserved: prefilled ssid + typed password still in the draft.
+    final wifi = controller.drafts['wifi'] as WifiSection;
+    expect(wifi.ssid, 'Office-2.4G');
+    expect(wifi.password, 'example-password');
+  });
+
+  testWidgets('M3 network scan: list pick fills ssid, cursor loads page 2',
+      (tester) async {
+    final source = FakeSource();
+    final device = FakeCtDevice();
+    final controller = wiredController(source, device);
+    addTearDown(source.close);
+    addTearDown(device.close);
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(NeoLinkApp(controller: controller));
+    await settle(tester);
+    source.emit(sampleCandidate());
+    await settle(tester);
+    await tester.tap(find.text('连接'));
+    await settle(tester);
+
+    await tester.tap(find.byType(Checkbox).first);
+    await tester.pump();
+    await tester.tap(find.text('开始配置'));
+    await settle(tester);
+
+    await tester.ensureVisible(find.text('扫描网络'));
+    await tester.pump();
+    await tester.tap(find.text('扫描网络'));
+    await settle(tester);
+    expect(controller.scanItems, hasLength(2)); // Office-2.4G + CT-HaLow
+
+    // Cursor paging: page-2 entry appears.
+    await tester.ensureVisible(find.text('加载更多'));
+    await tester.pump();
+    await tester.tap(find.text('加载更多'));
+    await settle(tester);
+    expect(controller.scanItems, hasLength(3));
+
+    // Picking a tile writes the ssid draft.
+    await tester.tap(find.text('CT-HaLow'));
+    await settle(tester);
+    expect((controller.drafts['wifi'] as WifiSection).ssid, 'CT-HaLow');
   });
 }

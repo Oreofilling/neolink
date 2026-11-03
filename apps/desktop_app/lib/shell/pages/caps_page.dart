@@ -73,6 +73,13 @@ class _CapsPageState extends State<CapsPage> {
                   const SizedBox(height: 14),
                   for (final section in caps.sections)
                     _sectionRow(c, l, section),
+                  const SizedBox(height: 16),
+                  NLButton(
+                    label: l.capsBegin,
+                    onPressed: _selected.isEmpty
+                        ? null
+                        : () => controller.beginEditing(_selected),
+                  ),
                 ],
               ],
             ),

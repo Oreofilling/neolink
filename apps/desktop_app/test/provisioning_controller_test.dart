@@ -4,6 +4,7 @@
 library;
 
 import 'package:ble_adapter/ble_adapter.dart';
+import 'package:communication_domain/communication_domain.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provisioning_session/provisioning_session.dart';
 
@@ -24,6 +25,30 @@ ProvisioningController makeController(
   connectChannel: connect ?? ((_, __) async => FakeCtDevice()),
   scanTimeout: scanTimeout,
 );
+
+/// Drives selfcheck → candidate → connect up to choosingSections; registers
+/// teardowns in the enclosing test scope.
+Future<ProvisioningController> connectedToCaps(
+  FakeSource source,
+  FakeCtDevice device,
+) async {
+  final controller = makeController(source, connect: (_, __) async => device);
+  addTearDown(controller.dispose);
+  addTearDown(source.close);
+  addTearDown(device.close);
+  await controller.runSelfCheck();
+  // Phase events are delivered async: wait for the scan subscription before
+  // feeding a candidate, otherwise the broadcast stream drops it.
+  await until(() => source.startCount == 1, 'selfcheck did not start scan');
+  source.emit(sampleCandidate());
+  await until(
+    () => controller.phase == SessionPhase.resultsAvailable,
+    'candidate did not move phase',
+  );
+  await controller.selectCandidate(controller.candidates.first);
+  expect(controller.phase, SessionPhase.choosingSections);
+  return controller;
+}
 
 void main() {
   test(
@@ -175,4 +200,222 @@ void main() {
       expect(source.startCount, 0);
     },
   );
+
+  group('M3 form / delivery / scan', () {
+    test('beginEditing prefills from config.get (masked secrets skipped)',
+        () async {
+      final source = FakeSource();
+      final device = FakeCtDevice();
+      final controller = await connectedToCaps(source, device);
+
+      await controller.beginEditing({'wifi', 'mqtt'});
+      expect(controller.phase, SessionPhase.editingConfig);
+      expect(controller.editingSections, ['wifi', 'mqtt']);
+      await until(() => controller.prefillDone, 'prefill did not finish');
+
+      final wifi = controller.drafts['wifi'] as WifiSection;
+      expect(wifi.ssid, 'Office-2.4G'); // read-back applied
+      expect(wifi.password, isEmpty); // masked value never enters the draft
+      final mqtt = controller.drafts['mqtt'] as MqttSection;
+      expect(mqtt.enable, isTrue);
+      expect(mqtt.port, 8883);
+    });
+
+    test('submit stores both sections then finish returns to scanning',
+        () async {
+      final source = FakeSource();
+      final device = FakeCtDevice();
+      final controller = await connectedToCaps(source, device);
+
+      await controller.beginEditing({'wifi', 'mqtt'});
+      await until(() => controller.prefillDone, 'prefill did not finish');
+      controller.updateDraft(
+        const WifiSection(ssid: 'Office-2.4G', password: 'example-password'),
+      );
+      controller.updateDraft(
+        const MqttSection(enable: true, host: 'mqtt.example.com', port: 8883),
+      );
+      await controller.submit();
+
+      expect(controller.phase, SessionPhase.completed);
+      expect(controller.deliveryResult!.stored, containsAll(['wifi', 'mqtt']));
+      expect(controller.deliveryResult!.apply, 'reconnect');
+      expect(device.lastConfigSet, {
+        'wifi': {'ssid': 'Office-2.4G', 'password': 'example-password'},
+        'mqtt': {'enable': true, 'host': 'mqtt.example.com', 'port': 8883},
+      });
+
+      await controller.finishSession();
+      expect(controller.phase, SessionPhase.scanning);
+      expect(controller.drafts, isEmpty); // editing state cleared
+      expect(controller.pageForPhase, 'scan');
+    });
+
+    test('client validation blocks submit with per-field problems', () async {
+      final source = FakeSource();
+      final device = FakeCtDevice();
+      final controller = await connectedToCaps(source, device);
+
+      await controller.beginEditing({'wifi'});
+      await until(() => controller.prefillDone, 'prefill did not finish');
+      controller.updateDraft(
+        const WifiSection(ssid: 'Net', password: 'short'),
+      );
+      await controller.submit();
+
+      // Stays on the form with the field marked; nothing reached the device.
+      expect(controller.phase, SessionPhase.editingConfig);
+      expect(
+        controller.sectionProblems['wifi'],
+        contains(
+          predicate<FieldProblem>(
+            (problem) =>
+                problem.field == 'password' &&
+                problem.code == FieldProblemCode.tooShort,
+          ),
+        ),
+      );
+      expect(device.lastConfigSet, isNull);
+
+      controller.updateDraft(
+        const WifiSection(ssid: 'Net', password: 'example-password'),
+      );
+      await controller.submit();
+      expect(controller.phase, SessionPhase.completed);
+    });
+
+    test('undeclared field is gated client-side before config.set', () async {
+      final source = FakeSource();
+      final device = FakeCtDevice(); // ne101 wifi fields: ssid, password only
+      final controller = await connectedToCaps(source, device);
+
+      await controller.beginEditing({'wifi'});
+      await until(() => controller.prefillDone, 'prefill did not finish');
+      controller.updateDraft(
+        const WifiSection(
+          ssid: 'Net',
+          password: 'example-password',
+          bssid: 'aa:bb:cc:dd:ee:ff',
+        ),
+      );
+      await controller.submit();
+
+      expect(controller.phase, SessionPhase.editingConfig);
+      expect(
+        controller.sectionProblems['wifi'],
+        contains(
+          predicate<FieldProblem>(
+            (problem) =>
+                problem.field == 'bssid' &&
+                problem.code == FieldProblemCode.notDeclared,
+          ),
+        ),
+      );
+      expect(device.lastConfigSet, isNull);
+    });
+
+    test('device rejection keeps drafts; editAgain returns to the form',
+        () async {
+      final source = FakeSource();
+      final device = FakeCtDevice(rejectConfigSet: 'FIELD_NOT_SUPPORTED');
+      final controller = await connectedToCaps(source, device);
+
+      await controller.beginEditing({'wifi'});
+      await until(() => controller.prefillDone, 'prefill did not finish');
+      controller.updateDraft(
+        const WifiSection(ssid: 'Office-2.4G', password: 'example-password'),
+      );
+      await controller.submit();
+
+      expect(controller.phase, SessionPhase.operationError);
+      expect(controller.lastProblem!.reason, 'field_not_supported');
+      expect(controller.lastProblem!.message, contains('FIELD_NOT_SUPPORTED'));
+
+      controller.editAgain();
+      expect(controller.phase, SessionPhase.editingConfig);
+      final wifi = controller.drafts['wifi'] as WifiSection;
+      expect(wifi.ssid, 'Office-2.4G'); // entries preserved
+      expect(wifi.password, 'example-password');
+    });
+
+    test('network scan pages via cursor; picking fills the ssid draft',
+        () async {
+      final source = FakeSource();
+      final device = FakeCtDevice();
+      final controller = await connectedToCaps(source, device);
+
+      await controller.beginEditing({'wifi'});
+      await until(() => controller.prefillDone, 'prefill did not finish');
+
+      await controller.scanNetworks('wifi');
+      expect(
+        controller.scanItems.map((network) => network.networkId).toList(),
+        ['Office-2.4G', 'CT-HaLow'],
+      );
+      expect(controller.scanMore, isTrue);
+
+      await controller.loadMoreNetworks();
+      expect(controller.scanItems.last.networkId, 'Neighbor-5G');
+      expect(controller.scanMore, isFalse);
+      expect(device.lastScanRequest, {
+        'section': 'wifi',
+        'cursor': 'page-2',
+      });
+
+      controller.pickNetwork(controller.scanItems.first);
+      expect((controller.drafts['wifi'] as WifiSection).ssid, 'Office-2.4G');
+    });
+
+    test('unsupported config.get degrades to empty prefill', () async {
+      final source = FakeSource();
+      final device = FakeCtDevice(supportsConfigGet: false);
+      final controller = await connectedToCaps(source, device);
+
+      await controller.beginEditing({'wifi'});
+      await until(() => controller.prefillDone, 'prefill did not finish');
+      expect(controller.drafts['wifi'], isA<WifiSection>());
+      expect((controller.drafts['wifi'] as WifiSection).ssid, isEmpty);
+    });
+
+    test('ne301 shape: comm selector gated by declared networks', () async {
+      final source = FakeSource();
+      final device = FakeCtDevice(capsShape: 'ne301');
+      final controller = await connectedToCaps(source, device);
+
+      expect(controller.declaredNetworks, {'wifi', 'cellular', 'ethernet'});
+      await controller.beginEditing({'comm', 'ethernet', 'webhook'});
+      // Readonly ethernet is excluded from the editing round.
+      expect(controller.editingSections, ['comm', 'webhook']);
+
+      // halow is not a declared network section: client blocks the submit.
+      controller.updateDraft(
+        const CommSection(type: CommunicationMode.wifiHalow),
+      );
+      controller.updateDraft(
+        const WebhookSection(
+          enable: true,
+          url: 'https://ops.example.com/hooks/camera',
+        ),
+      );
+      await controller.submit();
+      expect(controller.phase, SessionPhase.editingConfig);
+      expect(
+        controller.sectionProblems['comm'],
+        contains(
+          predicate<FieldProblem>(
+            (problem) =>
+                problem.field == 'type' &&
+                problem.code == FieldProblemCode.invalidValue,
+          ),
+        ),
+      );
+      expect(device.lastConfigSet, isNull);
+
+      // Back to a declared mode: both sections go through in one request.
+      controller.updateDraft(const CommSection(type: CommunicationMode.cat1));
+      await controller.submit();
+      expect(controller.phase, SessionPhase.completed);
+      expect(device.lastConfigSet!.keys.toSet(), {'comm', 'webhook'});
+    });
+  });
 }

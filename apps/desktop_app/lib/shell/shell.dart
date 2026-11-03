@@ -9,6 +9,8 @@ import 'pages.dart';
 import 'pages/caps_page.dart';
 import 'pages/connect_page.dart';
 import 'pages/empty_page.dart';
+import 'pages/form_page.dart';
+import 'pages/result_page.dart';
 import 'pages/scan_page.dart';
 import 'pages/selfcheck_page.dart';
 
@@ -98,7 +100,8 @@ class _AppShellState extends State<AppShell> {
     );
   }
 
-  /// 相位对应的页面；尚未到达的里程碑（指引/配置/下发）仍为占位。
+  /// Phase-driven pages; guide and per-section config pages stay behind
+  /// later milestones.
   Widget _content() {
     switch (_page) {
       case 'selfcheck':
@@ -111,6 +114,10 @@ class _AppShellState extends State<AppShell> {
         return ConnectPage(controller: widget.controller);
       case 'caps':
         return CapsPage(controller: widget.controller);
+      case 'deliver':
+        return FormPage(controller: widget.controller);
+      case 'result':
+        return ResultPage(controller: widget.controller);
       default:
         return PlaceholderPage(pageId: _page);
     }
