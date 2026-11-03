@@ -49,12 +49,12 @@ class _SelfcheckPageState extends State<SelfcheckPage> {
         final held = controller.selfCheckHeld;
         // 自检相位之外回访本页：只读报告，不再声明「自动进入扫描」。
         final idle = controller.phase != SessionPhase.selfChecking;
+        // While counting, the big strip below carries the countdown sentence;
+        // the status line keeps the plain "ready" label (round-2 A1).
         final status = report == null || running
             ? l.selfcheckRunning
-            : idle
+            : (idle || counting != null)
             ? (report.canProceed ? l.selfcheckReadyIdle : l.selfcheckBlocked)
-            : counting != null
-            ? l.selfcheckCountdown(counting)
             : held
             ? l.selfcheckHeld
             : (report.canProceed ? l.selfcheckReady : l.selfcheckBlocked);
@@ -91,6 +91,58 @@ class _SelfcheckPageState extends State<SelfcheckPage> {
                         for (final entry in report.channels)
                           _channelRow(c, l, entry),
                       const SizedBox(height: 16),
+                      // Round-2 A1: a prominent countdown strip — big digits
+                      // plus a bar that drains each second, sitting right
+                      // above the action buttons.
+                      if (counting != null) ...[
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            Text(
+                              '$counting',
+                              style: const TextStyle(
+                                fontSize: 34,
+                                fontWeight: FontWeight.w800,
+                                height: 1,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 3),
+                              child: Text(
+                                l.selfcheckCountdownHint,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: c.mutedForeground,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        Container(
+                          height: 6,
+                          decoration: BoxDecoration(
+                            color: c.muted,
+                            borderRadius: BorderRadius.circular(3),
+                          ),
+                          clipBehavior: Clip.antiAlias,
+                          alignment: Alignment.centerLeft,
+                          child: AnimatedFractionallySizedBox(
+                            duration: const Duration(milliseconds: 900),
+                            curve: Curves.linear,
+                            widthFactor:
+                                (counting /
+                                        controller.selfCheckHold.inSeconds)
+                                    .clamp(0.0, 1.0),
+                            child: ColoredBox(
+                              color: c.foreground,
+                              child: const SizedBox.expand(),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                      ],
                       Wrap(
                         spacing: 8,
                         runSpacing: 8,

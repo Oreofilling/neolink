@@ -57,12 +57,17 @@ class AppShell extends StatefulWidget {
 
 class _AppShellState extends State<AppShell> {
   String _page = 'selfcheck';
+  SessionPhase _phase = SessionPhase.selfChecking;
 
   @override
   void initState() {
     super.initState();
-    // 相位驱动页面跟随：链路推进（如出候选、进入连接）时自动切页；
-    // 手动浏览不冲突——仅相位变化才跳转，普通刷新不打断用户。
+    // Phase-driven page following: jump only when the session phase actually
+    // migrates (candidate found, link advancing). Plain refresh notifications
+    // (scan sweep ticks, staleness re-render, recheck) must not drag the user
+    // back to the phase page — round-2 A2 found the selfcheck page became
+    // unreachable mid-scan because every notify reset the manual selection.
+    _phase = widget.controller.phase;
     widget.controller.addListener(_onControllerChanged);
   }
 
@@ -73,6 +78,10 @@ class _AppShellState extends State<AppShell> {
   }
 
   void _onControllerChanged() {
+    final phase = widget.controller.phase;
+    // Same phase = plain refresh: keep the user's manual page selection.
+    if (phase == _phase) return;
+    _phase = phase;
     final target = widget.controller.pageForPhase;
     if (target != _page) setState(() => _page = target);
   }

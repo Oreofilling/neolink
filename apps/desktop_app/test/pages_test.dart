@@ -333,7 +333,7 @@ void main() {
     expect((controller.drafts['wifi'] as WifiSection).ssid, 'CT-HaLow');
   });
 
-  testWidgets('M3b 自检通过倒计时：可停留，停留后立即扫描', (tester) async {
+  testWidgets('M3b countdown: prominent digits, stay, then scan now', (tester) async {
     final source = FakeSource();
     final device = FakeCtDevice();
     final controller = wiredController(source, device,
@@ -343,9 +343,11 @@ void main() {
     addTearDown(controller.dispose);
 
     await pumpApp(tester, controller);
-    await settle(tester); // 自检完成，倒计时 5（帧步进不触发 1s tick）
+    await settle(tester); // Self-check done; countdown sits at 5 (16ms frame steps never hit the 1s tick).
     expect(controller.phase, SessionPhase.selfChecking);
-    expect(find.text('5 秒后自动进入扫描'), findsOneWidget);
+    // Round-2 A1: big countdown digits plus the suffix hint — unmissable.
+    expect(find.text('5'), findsOneWidget);
+    expect(find.text('秒后自动进入扫描'), findsOneWidget);
     expect(find.text('停留本页'), findsOneWidget);
 
     await tester.tap(find.text('停留本页'));
@@ -358,6 +360,38 @@ void main() {
     await settle(tester);
     expect(controller.phase, SessionPhase.scanning);
     // 泵过扫描窗口收敛回空态，保证收尾无挂起定时器。
+    await tester.pump(const Duration(seconds: 21));
+    expect(controller.phase, SessionPhase.scanEmpty);
+  });
+
+  testWidgets('M3b A2: selfcheck page stays reachable mid-scan', (tester) async {
+    final source = FakeSource();
+    final device = FakeCtDevice();
+    final controller = wiredController(source, device);
+    addTearDown(source.close);
+    addTearDown(device.close);
+    addTearDown(controller.dispose);
+
+    await pumpApp(tester, controller);
+    await settle(tester); // Self-check passed -> scanning.
+
+    // Navigate back to the selfcheck page from the sidebar.
+    await tester.tap(find.text('环境自检'));
+    await settle(tester);
+    expect(find.text('重新检测'), findsOneWidget); // On the selfcheck page.
+
+    // Pump past a 3s sweep tick: the phase did not migrate, so the shell must
+    // keep the manual page selection (round-2 A2 regression).
+    await tester.pump(const Duration(seconds: 4));
+    expect(find.text('重新检测'), findsOneWidget);
+
+    // Re-run checks mid-scan: report refresh only — no phase change, no jump.
+    await tester.tap(find.text('重新检测'));
+    await settle(tester);
+    expect(controller.phase, SessionPhase.scanning);
+    expect(find.text('重新检测'), findsOneWidget);
+
+    // Converge past the scan window to clear pending timers.
     await tester.pump(const Duration(seconds: 21));
     expect(controller.phase, SessionPhase.scanEmpty);
   });
