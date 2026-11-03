@@ -30,7 +30,8 @@ final class FakeCtDevice implements CtGattChannel {
   Stream<int> get mtuChanges => _mtuChanges.stream;
 
   // 广播流：未 open 的用例里 close() 不等监听者，避免 tearDown 挂起。
-  final StreamController<List<int>> _d2c = StreamController<List<int>>.broadcast();
+  final StreamController<List<int>> _d2c =
+      StreamController<List<int>>.broadcast();
 
   @override
   Stream<List<int>> get d2cFrames => _d2c.stream;
@@ -76,6 +77,38 @@ final class FakeCtDevice implements CtGattChannel {
           'firmware': firmware,
           'power': ['battery'],
           'protocol_version': 1,
+        },
+      );
+    } else if (envelope.opName ==
+        ProvOp.communicationCapabilitiesGet.wireName) {
+      // §8 NE101 形态：无 comm 节，wifi 无 bssid，cellular 无 roaming。
+      responseJson = encodeResponse(
+        id: envelope.id,
+        op: '${ProvOp.communicationCapabilitiesGet.wireName}.result',
+        ok: true,
+        data: <String, Object?>{
+          'sections': [
+            {
+              'name': 'wifi',
+              'kind': 'network',
+              'configurable': true,
+              'scannable': true,
+              'fields': ['ssid', 'password'],
+            },
+            {
+              'name': 'cellular',
+              'kind': 'network',
+              'configurable': true,
+              'fields': ['apn', 'username', 'password', 'pin', 'auth'],
+            },
+            {
+              'name': 'mqtt',
+              'kind': 'service',
+              'configurable': true,
+              'fields': ['enable', 'host', 'port'],
+            },
+          ],
+          'current': {'network': null},
         },
       );
     } else if (envelope.opName == ProvOp.sessionClose.wireName) {
@@ -146,6 +179,25 @@ void main() {
 
     expect(info.deviceName, 'NE301-AABBCC');
     expect(device.responseFrames, 1);
+  });
+
+  test('capabilities roundtrip resolves sections and current network',
+      () async {
+    final device = FakeCtDevice();
+    final client = CtSessionClient(device);
+    addTearDown(client.dispose);
+    addTearDown(device.close);
+
+    await client.open();
+    final capabilities = await client.fetchCapabilities();
+
+    expect(
+      capabilities.sections.map((section) => section.name).toList(),
+      ['wifi', 'cellular', 'mqtt'],
+    );
+    expect(capabilities.sections.first.scannable, isTrue);
+    expect(capabilities.sections[1].scannable, isFalse);
+    expect(capabilities.currentNetwork, isNull);
   });
 
   test('session.close answers ok and drops the link', () async {

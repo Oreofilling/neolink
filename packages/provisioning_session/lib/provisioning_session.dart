@@ -1,24 +1,9 @@
-/// 配置会话领域层（骨架）：统一状态机（技术设计 §11）。M2 填充迁移与资源释放。
+/// 配置会话领域层：统一状态机（技术设计 §11）+ CT-Prov 会话客户端
+/// （device.info / capabilities / session.close）。状态机只做相位迁移、
+/// 问题发布与注入式资源释放；适配器回调不直接导航页面。
 library;
 
+export 'src/capabilities.dart';
 export 'src/ct_session_client.dart';
-
-enum SessionPhase {
-  selfChecking,
-  scanning,
-  resultsAvailable,
-  scanEmpty,
-  guideScanning,
-  showingGuide,
-  connecting,
-  readingCapabilities,
-  choosingSections,
-  editingConfig,
-  delivering,
-  stored,
-  operationError,
-  connectionError,
-  capabilityError,
-  completed,
-  cleaning,
-}
+export 'src/provisioning_machine.dart';
+export 'src/session_exception.dart';

@@ -6,20 +6,8 @@ library;
 import 'package:ble_adapter/ble_adapter.dart';
 import 'package:ct_prov_core/ct_prov_core.dart';
 
-/// 会话客户端异常：reason 为稳定标识（供 UI 映射文案），message 携带
-/// 设备侧详情。不透传信封异常 —— 那是协议层损坏信号，走传输层的
-/// frameErrors。
-final class ProvSessionException implements Exception {
-  const ProvSessionException(this.reason, [this.message]);
-
-  final String reason;
-  final String? message;
-
-  @override
-  String toString() => message == null
-      ? 'ProvSessionException($reason)'
-      : 'ProvSessionException($reason: $message)';
-}
+import 'capabilities.dart';
+import 'session_exception.dart';
 
 /// device.info.get 的解析结果（§7 固定字段集，形状不符即抛错）。
 final class DeviceInfoResult {
@@ -131,6 +119,21 @@ final class CtSessionClient {
       timeout: timeout,
     );
     return DeviceInfoResult.fromResponse(response);
+  }
+
+  /// 读取配置能力（§8）：Client 必须在写入配置前完成本调用。
+  Future<CapabilitiesResult> fetchCapabilities({
+    Duration timeout = kDefaultRequestTimeout,
+  }) async {
+    final response = await _requireTransport().sendRequest(
+      ProvRequest(
+        id: _nextRequestId++,
+        opName: ProvOp.communicationCapabilitiesGet.wireName,
+        data: const {},
+      ),
+      timeout: timeout,
+    );
+    return CapabilitiesResult.fromResponse(response);
   }
 
   /// 结束会话（§11）：设备回 ok:true 空 data 后主动断链；链路级断开由
