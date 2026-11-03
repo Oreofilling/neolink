@@ -10,6 +10,8 @@ void main() {
   test('节联合类型携带节名', () {
     const s = WifiSection(ssid: 'Office-2.4G', password: 'example-password');
     expect(s.name, 'wifi');
-    expect(WebhookSection(enable: true, url: 'https://ops.example.com/hooks').name, 'webhook');
+    expect(
+        WebhookSection(enable: true, url: 'https://ops.example.com/hooks').name,
+        'webhook');
   });
 }
