@@ -5,13 +5,18 @@ version: 0.1.0
 environment:
   sdk: ^3.5.0
 dependencies:
+  # Windows 系统配对走原生方法通道（system_pairing.dart），显式声明
+  # flutter 依赖（原先靠 universal_ble 传递可用，但触发包引用告警）。
+  flutter:
+    sdk: flutter
   ble_adapter:
     path: ../ble_adapter
   discovery_domain:
     path: ../discovery_domain
-  # 固定 3.1.1：3.2.0 的插件包里没有 windows/ 实现目录，Windows 端
-  # CMake 生成直接失败；3.1.1 为真机 PoC 验证过的版本。
-  universal_ble: 3.1.1
+  # 固定 3.1.2：真机 PoC（NE101 往返 3 连）验证过的版本；编译机的
+  # 插件符号链接需手工换成目录联接（mklink /J）才能过 CMake，版本
+  # 随意漂移会让已验证的联接目标失配，故锁死。
+  universal_ble: 3.1.2
 dev_dependencies:
   test: ^1.24.0
   lints: ^4.0.0
