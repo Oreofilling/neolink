@@ -45,8 +45,8 @@ final class CtSystemPairing {
            fallbackPair ??
            ((deviceId, timeout) =>
                UniversalBle.pair(deviceId, timeout: timeout)),
-       _hasSystemPairingApi = hasSystemPairingApi ?? () =>
-      BleCapabilities.hasSystemPairingApi;
+       _hasSystemPairingApi =
+           hasSystemPairingApi ?? (() => BleCapabilities.hasSystemPairingApi);
 
   final Future<bool?> Function(String deviceId) _isPaired;
   final Future<String> Function(String deviceId, Duration timeout) _nativePair;
