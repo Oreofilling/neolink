@@ -139,5 +139,9 @@ void main() {
     await tester.tap(find.text('重新扫描'));
     await tester.pump(const Duration(milliseconds: 16)); // 微任务收敛即扫描中
     expect(controller.phase, SessionPhase.scanning);
+
+    // 无候选则二次超时仍收敛回空态（也保证测试收尾无挂起定时器）。
+    await tester.pump(const Duration(seconds: 21));
+    expect(controller.phase, SessionPhase.scanEmpty);
   });
 }
