@@ -328,7 +328,11 @@ void main() {
       await controller.submit();
 
       expect(controller.phase, SessionPhase.operationError);
-      expect(controller.lastProblem!.reason, 'field_not_supported');
+      // Problems are delivered through an async stream: wait for the event.
+      await until(
+        () => controller.lastProblem?.reason == 'field_not_supported',
+        'rejection problem not delivered',
+      );
       expect(controller.lastProblem!.message, contains('FIELD_NOT_SUPPORTED'));
 
       controller.editAgain();

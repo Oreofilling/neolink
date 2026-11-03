@@ -166,6 +166,8 @@ void main() {
     // Check wifi, enter the form.
     await tester.tap(find.byType(Checkbox).first);
     await tester.pump();
+    await tester.ensureVisible(find.text('开始配置'));
+    await tester.pump();
     await tester.tap(find.text('开始配置'));
     await settle(tester);
     expect(controller.phase, SessionPhase.editingConfig);
@@ -216,6 +218,8 @@ void main() {
 
     await tester.tap(find.byType(Checkbox).first);
     await tester.pump();
+    await tester.ensureVisible(find.text('开始配置'));
+    await tester.pump();
     await tester.tap(find.text('开始配置'));
     await settle(tester);
 
@@ -256,6 +260,8 @@ void main() {
     await settle(tester);
 
     await tester.tap(find.byType(Checkbox).first);
+    await tester.pump();
+    await tester.ensureVisible(find.text('开始配置'));
     await tester.pump();
     await tester.tap(find.text('开始配置'));
     await settle(tester);
