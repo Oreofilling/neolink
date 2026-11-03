@@ -1,5 +1,7 @@
-/// universal_ble 的 CtGattChannel 实现：连接、发现、配对加密、MTU、订阅
-/// 与读写（§3 连接序列：Read META → Subscribe D2C → MTU → 加密 → 请求）。
+/// universal_ble 的 CtGattChannel 实现：连接、发现、MTU、订阅与读写。
+///
+/// Windows PoC 在打开本通道前先完成系统 bonding，避免 PairAsync 与服务
+/// 发现、CCCD 写入竞争；设备侧安全请求仍作为未配对客户端的兜底。
 library;
 
 import 'dart:async';
@@ -9,16 +11,23 @@ import 'package:ble_adapter/ble_adapter.dart';
 import 'package:universal_ble/universal_ble.dart';
 
 import 'connect_retry.dart';
+import 'security_write_retry.dart';
 
 /// MTU 目标值：247 覆盖 device.info 单帧；Windows 在连接时自动协商，
 /// requestMtu 返回实际生效值。
 const int kCtProvTargetMtu = 247;
 
 final class UniversalCtGattChannel implements CtGattChannel {
-  UniversalCtGattChannel._(this._deviceId, this._mtu, this.meta);
+  UniversalCtGattChannel._(
+    this._deviceId,
+    this._mtu,
+    this.meta,
+    this._onStep,
+  );
 
   final String _deviceId;
   final int _mtu;
+  final void Function(String step)? _onStep;
   final StreamController<int> _mtuChanges = StreamController<int>.broadcast();
   bool _closed = false;
 
@@ -28,7 +37,7 @@ final class UniversalCtGattChannel implements CtGattChannel {
   /// 走完 §3 连接序列并返回就绪通道。任一步失败先回滚断开再抛错，
   /// 不留半开连接。
   ///
-  /// [onStep] 接收连接序列的分步进度（连接/枚举/META/订阅/MTU/配对），
+  /// [onStep] 接收连接序列的分步进度（连接/枚举/META/订阅/MTU/安全策略），
   /// 真机排障用：异常发生前的最后一条 step 即失败点。
   ///
   /// Windows 端插件在连接瞬间一次性缓存 GATT 表，缓存坏掉（空表/陈旧
@@ -65,6 +74,12 @@ final class UniversalCtGattChannel implements CtGattChannel {
         deviceId,
         timeout: timeout,
       );
+      final gattDump = services
+          .map(
+            (service) => '${service.uuid}[${service.characteristics.length}]',
+          )
+          .join(' ');
+      onStep?.call('open: gatt ${gattDump.isEmpty ? '(empty)' : gattDump}');
       _validateCharacteristics(services);
       onStep?.call('open: gatt ok (${services.length} services)');
 
@@ -105,25 +120,11 @@ final class UniversalCtGattChannel implements CtGattChannel {
       }
       onStep?.call('open: mtu=$mtu');
 
-      // §4.4：C2D 要求加密链路（Just Works）。设备端在连接后主动发安全
-      // 请求驱动配对加密，不依赖客户端；这里的系统级 pair 只是兜底（顺带
-      // 让 Windows 存系统侧密钥）。失败仅记录不阻断——加密是否到位由后续
-      // C2D 写入的设备端裁决给出真话（配对与安全请求并发时 PairAsync 可能
-      // 返回 OperationAlreadyInProgress，属预期噪音）。
-      if (BleCapabilities.hasSystemPairingApi) {
-        try {
-          final paired = await UniversalBle.isPaired(deviceId);
-          onStep?.call('open: isPaired=$paired');
-          if (paired != true) {
-            await UniversalBle.pair(deviceId);
-            onStep?.call('open: pair() requested');
-          }
-        } catch (error) {
-          onStep?.call('open: pair best-effort failed ($error)');
-        }
-      }
+      // §4.4：C2D 要求加密链路（Just Works）。Windows PoC 在 open 前完成
+      // 系统 bonding；设备端 SMP Security Request 是其他客户端的兜底。
+      onStep?.call('open: security uses pre-established system bond');
 
-      final channel = UniversalCtGattChannel._(deviceId, mtu, meta);
+      final channel = UniversalCtGattChannel._(deviceId, mtu, meta, onStep);
       // 协商结果立刻播报，让传输层按新 MTU 重建重组器。
       channel._mtuChanges.add(mtu);
       return channel;
@@ -169,18 +170,40 @@ final class UniversalCtGattChannel implements CtGattChannel {
   @override
   Future<void> writeC2d(List<int> frame) async {
     _ensureOpen();
-    await UniversalBle.write(
-      _deviceId,
-      kCtProvServiceUuid,
-      kC2dCharacteristicUuid,
-      Uint8List.fromList(frame),
+    final value = Uint8List.fromList(frame);
+    var securityRetries = 0;
+    await writeWithSecurityRetry(
+      write: () async {
+        _ensureOpen();
+        await UniversalBle.write(
+          _deviceId,
+          kCtProvServiceUuid,
+          kC2dCharacteristicUuid,
+          value,
+        );
+      },
+      retryOn: (error) =>
+          error is UniversalBleException &&
+          (error.code == UniversalBleErrorCode.insufficientAuthentication ||
+              error.code == UniversalBleErrorCode.insufficientEncryption),
+      onRetry: (error, retry, pause) {
+        securityRetries = retry;
+        final milliseconds = pause.inMilliseconds;
+        _onStep?.call(
+          'C2D: link security pending; retry $retry in ${milliseconds}ms',
+        );
+      },
     );
+    if (securityRetries > 0) {
+      _onStep?.call(
+        'C2D: link encrypted; write resumed after $securityRetries retries',
+      );
+    }
   }
 
   /// D2C 指示流（广播；open 阶段已订阅）。
   @override
-  Stream<List<int>> get d2cFrames =>
-      UniversalBle.characteristicValueStream(
+  Stream<List<int>> get d2cFrames => UniversalBle.characteristicValueStream(
         _deviceId,
         kD2cCharacteristicUuid,
       ).map((bytes) => bytes.toList());
@@ -206,9 +229,14 @@ final class UniversalCtGattChannel implements CtGattChannel {
         kCtProvServiceUuid,
         kD2cCharacteristicUuid,
       );
-    } finally {
-      await _mtuChanges.close();
+    } catch (_) {
+      // 外设可能已经主动断链；清理保持幂等。
+    }
+    await _mtuChanges.close();
+    try {
       await UniversalBle.disconnect(_deviceId);
+    } catch (_) {
+      // 已断开的设备本来就处于期望终态。
     }
   }
 

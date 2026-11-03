@@ -2,7 +2,9 @@
 #define RUNNER_FLUTTER_WINDOW_H_
 
 #include <flutter/dart_project.h>
+#include <flutter/encodable_value.h>
 #include <flutter/flutter_view_controller.h>
+#include <flutter/method_channel.h>
 
 #include <memory>
 
@@ -28,6 +30,12 @@ class FlutterWindow : public Win32Window {
 
   // The Flutter instance hosted by this window.
   std::unique_ptr<flutter::FlutterViewController> flutter_controller_;
+
+  // Uses the Windows pairing API directly. universal_ble's Windows 10 path
+  // uses CustomPairing and reduces the detailed result to a boolean, which
+  // hides the actual failure status from Dart.
+  std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>>
+      pairing_channel_;
 };
 
 #endif  // RUNNER_FLUTTER_WINDOW_H_

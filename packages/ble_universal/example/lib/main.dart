@@ -8,29 +8,39 @@ library;
 import 'dart:async';
 
 import 'package:ble_universal/ble_universal.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provisioning_session/provisioning_session.dart';
 import 'package:universal_ble/universal_ble.dart';
 
-void main() {
-  runApp(const CtProvPocApp());
+const MethodChannel _windowsPairingChannel = MethodChannel(
+  'ct_prov_poc/windows_pairing',
+);
+
+void main(List<String> arguments) {
+  runApp(CtProvPocApp(autoRun: arguments.contains('--auto')));
 }
 
 class CtProvPocApp extends StatelessWidget {
-  const CtProvPocApp({super.key});
+  const CtProvPocApp({super.key, this.autoRun = false});
+
+  final bool autoRun;
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'CT-Prov PoC',
       theme: ThemeData(colorSchemeSeed: const Color(0xFF2A4C0B)),
-      home: const PocHomePage(),
+      home: PocHomePage(autoRun: autoRun),
     );
   }
 }
 
 class PocHomePage extends StatefulWidget {
-  const PocHomePage({super.key});
+  const PocHomePage({super.key, this.autoRun = false});
+
+  final bool autoRun;
 
   @override
   State<PocHomePage> createState() => _PocHomePageState();
@@ -51,7 +61,35 @@ class _PocHomePageState extends State<PocHomePage> {
   void initState() {
     super.initState();
     // 启动即自检（SessionPhase.selfChecking 的入口动作）。
-    unawaited(_selfCheck());
+    unawaited(widget.autoRun ? _runAutomatic() : _selfCheck());
+  }
+
+  Future<void> _runAutomatic() async {
+    await _selfCheck();
+    if (!mounted) return;
+    _appendLog('auto: scan and roundtrip enabled');
+    await _toggleScan();
+    if (!mounted || !_scanning) return;
+
+    final deadline = DateTime.now().add(const Duration(seconds: 20));
+    CtScanRecord? target;
+    while (mounted && DateTime.now().isBefore(deadline)) {
+      for (final record in _devices.values) {
+        if (record.info.displayName?.startsWith('NE101-') ?? false) {
+          target = record;
+          break;
+        }
+      }
+      if (target != null) break;
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+    }
+    if (!mounted) return;
+    if (target == null) {
+      await _stopScan('auto: NE101 target not found');
+      return;
+    }
+    _appendLog('auto: selected ${target.info.displayName}');
+    await _runRoundtrip(target.deviceId);
   }
 
   Future<void> _selfCheck() async {
@@ -62,6 +100,9 @@ class _PocHomePageState extends State<PocHomePage> {
 
   void _appendLog(String line) {
     if (!mounted) return;
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.windows) {
+      unawaited(_windowsPairingChannel.invokeMethod<void>('log', line));
+    }
     setState(() {
       _log.insert(0, line);
       if (_log.length > 200) _log.removeLast();
@@ -99,9 +140,11 @@ class _PocHomePageState extends State<PocHomePage> {
     _rawSub = UniversalBle.scanStream.listen((device) {
       _rawSeen++;
       if (_rawSeen <= 30 || _rawSeen % 50 == 0) {
-        _appendLog('raw#$_rawSeen: ${device.name ?? '(no name)'} '
-            'id=${device.deviceId} rssi=${device.rssi} '
-            'svcData=${device.serviceData.keys.toList()}');
+        _appendLog(
+          'raw#$_rawSeen: ${device.name ?? '(no name)'} '
+          'id=${device.deviceId} rssi=${device.rssi} '
+          'svcData=${device.serviceData.keys.toList()}',
+        );
       }
     });
     try {
@@ -128,6 +171,17 @@ class _PocHomePageState extends State<PocHomePage> {
     _appendLog(reason);
   }
 
+  Future<void> _pairDevice(String deviceId) async {
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.windows) {
+      final status = await _windowsPairingChannel
+          .invokeMethod<String>('pair', deviceId)
+          .timeout(const Duration(seconds: 15));
+      _appendLog('pre-open: Windows PairAsync status=$status');
+      return;
+    }
+    await UniversalBle.pair(deviceId, timeout: const Duration(seconds: 15));
+  }
+
   /// 对选中设备跑完一次 F1 往返：连接序列 → device.info.get →
   /// session.close → 断链。任何一步异常都记日志并确保链路回收。
   Future<void> _runRoundtrip(String deviceId) async {
@@ -139,37 +193,37 @@ class _PocHomePageState extends State<PocHomePage> {
     setState(() => _busy = true);
     final record = _devices[deviceId];
     _appendLog('connect ${record?.info.displayName ?? deviceId}');
-    // 诊断：先连上并枚举一次完整 GATT 表，打印每个服务与特征数——
-    // 观察平台（Windows）真实返回的服务/特征全貌。
-    try {
-      await UniversalBle.connect(deviceId);
-      final services = await UniversalBle.discoverServices(deviceId);
-      final dump = services
-          .map((s) => '${s.uuid}[${s.characteristics.length}]')
-          .join(' ');
-      _appendLog('gatt: ${dump.isEmpty ? '(empty)' : dump}');
-    } catch (error) {
-      _appendLog('gatt dump failed: $error');
-    }
     UniversalCtGattChannel? channel;
     try {
-      // onStep：连接序列分步日志（连接/枚举/META/订阅/MTU/配对），
+      // 先独立完成系统 bonding，再建立本应用的 GATT 会话。Windows 10
+      // 绕开 universal_ble 的 ProvidePin/自动保护等级分支，明确使用
+      // ConfirmOnly + Encryption，并保留 DevicePairingResultStatus。
+      final paired = await UniversalBle.isPaired(deviceId);
+      _appendLog('pre-open: isPaired=$paired');
+      if (paired != true) {
+        _appendLog('pre-open: system pairing requested');
+        await _pairDevice(deviceId);
+        _appendLog('pre-open: system pairing complete');
+      }
+
+      // onStep：连接序列分步日志（连接/枚举/META/订阅/MTU/安全策略），
       // 异常前最后一条即失败点。
-      channel = await UniversalCtGattChannel.open(
-        deviceId,
-        onStep: _appendLog,
+      channel = await UniversalCtGattChannel.open(deviceId, onStep: _appendLog);
+      _appendLog(
+        'connected, mtu=${channel.mtu}, '
+        'meta name=${channel.meta?.name ?? '?'} '
+        'busy=${channel.meta?.busy ?? '?'}',
       );
-      _appendLog('connected, mtu=${channel.mtu}, '
-          'meta name=${channel.meta?.name ?? '?'} '
-          'busy=${channel.meta?.busy ?? '?'}');
 
       final client = CtSessionClient(channel);
       try {
         await client.open();
         final info = await client.fetchDeviceInfo();
-        _appendLog('device.info: ${info.deviceName} / sn=${info.serialNumber} '
-            '/ model=${info.model} / fw=${info.firmware} / '
-            'power=${info.power.join('|')} / proto=v${info.protocolVersion}');
+        _appendLog(
+          'device.info: ${info.deviceName} / sn=${info.serialNumber} '
+          '/ model=${info.model} / fw=${info.firmware} / '
+          'power=${info.power.join('|')} / proto=v${info.protocolVersion}',
+        );
         await client.closeSession();
         _appendLog('session.close ok');
       } finally {
@@ -178,9 +232,14 @@ class _PocHomePageState extends State<PocHomePage> {
     } catch (error) {
       _appendLog('roundtrip failed: $error');
     } finally {
-      await channel?.close();
-      if (mounted) setState(() => _busy = false);
-      _appendLog('disconnected');
+      try {
+        await channel?.close();
+      } catch (error) {
+        _appendLog('disconnect cleanup failed: $error');
+      } finally {
+        if (mounted) setState(() => _busy = false);
+        _appendLog('disconnected');
+      }
     }
   }
 
@@ -218,14 +277,12 @@ class _PocHomePageState extends State<PocHomePage> {
         children: [
           ListTile(
             dense: true,
-            leading: Icon(
-              switch (_environment?.readiness) {
-                CtBleReadiness.ready => Icons.check_circle,
-                CtBleReadiness.transient => Icons.hourglass_top,
-                null => Icons.hourglass_top,
-                _ => Icons.error_outline,
-              },
-            ),
+            leading: Icon(switch (_environment?.readiness) {
+              CtBleReadiness.ready => Icons.check_circle,
+              CtBleReadiness.transient => Icons.hourglass_top,
+              null => Icons.hourglass_top,
+              _ => Icons.error_outline,
+            }),
             title: Text('env: ${_environment?.readiness.name ?? 'checking'}'),
             subtitle: Text(_environment?.detail ?? 'probing...'),
             onTap: _busy ? null : _selfCheck,

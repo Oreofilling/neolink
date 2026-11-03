@@ -7,5 +7,10 @@ void main() {
     await tester.pumpWidget(const CtProvPocApp());
     expect(find.text('CT-Prov PoC'), findsOneWidget);
     expect(find.text('Start scan'), findsOneWidget);
+
+    // No BLE platform channel exists in a widget-test process. Let the
+    // universal_ble command timeout complete so its queue timer does not
+    // outlive the disposed widget tree.
+    await tester.pump(const Duration(seconds: 11));
   });
 }
