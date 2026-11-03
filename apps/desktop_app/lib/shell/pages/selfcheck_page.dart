@@ -44,14 +44,16 @@ class _SelfcheckPageState extends State<SelfcheckPage> {
         // report 必须在 builder 内读取：壳只在切页时重建本页组件，
         // 自检相位内的通知只走 ListenableBuilder，外层捕获会停留在 null。
         final report = controller.environmentReport;
-        final running = controller.selfChecking && report == null;
         final counting = controller.selfCheckCountdown;
         final held = controller.selfCheckHeld;
         // 自检相位之外回访本页：只读报告，不再声明「自动进入扫描」。
         final idle = controller.phase != SessionPhase.selfChecking;
-        // While counting, the big strip below carries the countdown sentence;
-        // the status line keeps the plain "ready" label (round-2 A1).
-        final status = report == null || running
+        // Round-3 A2: every check gives visible feedback — the running label
+        // while in flight (a previous report keeps the rows visible), and a
+        // last-checked stamp afterwards, since unchanged rows otherwise look
+        // like the button did nothing.
+        final busy = controller.selfChecking;
+        final status = busy || report == null
             ? l.selfcheckRunning
             : (idle || counting != null)
             ? (report.canProceed ? l.selfcheckReadyIdle : l.selfcheckBlocked)
@@ -175,6 +177,20 @@ class _SelfcheckPageState extends State<SelfcheckPage> {
                             ),
                         ],
                       ),
+                      if (controller.selfCheckAt != null)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 10),
+                          child: Text(
+                            l.selfcheckLastRun(
+                              _clock(controller.selfCheckAt!),
+                            ),
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: c.mutedForeground,
+                              fontFamily: 'JetBrains Mono',
+                            ),
+                          ),
+                        ),
                     ],
                   ),
                 ),
@@ -184,6 +200,13 @@ class _SelfcheckPageState extends State<SelfcheckPage> {
         );
       },
     );
+  }
+
+  /// Wall-clock stamp for the last completed check (locale-independent
+  /// HH:mm:ss — proves a re-check ran even when the rows are unchanged).
+  static String _clock(DateTime at) {
+    String two(int value) => value.toString().padLeft(2, '0');
+    return '${two(at.hour)}:${two(at.minute)}:${two(at.second)}';
   }
 
   Widget _channelRow(NLColors c, AppLocalizations l, ChannelReadiness entry) {

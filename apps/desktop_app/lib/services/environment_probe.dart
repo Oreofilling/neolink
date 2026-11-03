@@ -104,17 +104,27 @@ class DesktopEnvironmentProbe {
   DesktopEnvironmentProbe({
     Future<CtEnvironmentReport> Function()? probeBle,
     Future<String?> Function()? enumerateAdapters,
+    this.legTimeout = const Duration(seconds: 10),
   }) : _probeBle = probeBle ?? UniversalCtEnvironment.probe,
        _enumerateAdapters = enumerateAdapters ?? _queryAdaptersViaPowerShell;
 
   final Future<CtEnvironmentReport> Function() _probeBle;
   final Future<String?> Function() _enumerateAdapters;
 
+  /// Per-leg cap. A hung WinRT radio query (or a stuck PowerShell child)
+  /// must resolve as a degraded report instead of wedging the caller —
+  /// round-3 A2 found a wedged probe turns the re-check button permanently
+  /// silent (the controller guards re-entry with an in-flight flag).
+  final Duration legTimeout;
+
   /// 一次完整探测。BLE 探测异常按 transient 降级（携带原因）。
   Future<EnvironmentCheckReport> probe() async {
     // 用 try/catch 而不是 Future.catchError：抛错的 async 闭包实际类型
     // 参数是 Never，catchError 的运行时类型检查会拒绝处理器返回值。
-    final results = await Future.wait([_guardedBleProbe(), _guardedAdapters()]);
+    final results = await Future.wait([
+      _guardedBleProbe().timeout(legTimeout, onTimeout: _bleTimedOut),
+      _guardedAdapters().timeout(legTimeout, onTimeout: () => null),
+    ]);
     final bleReport = results[0] as CtEnvironmentReport;
     final adapterJson = results[1] as String?;
     return EnvironmentCheckReport(
@@ -127,6 +137,11 @@ class DesktopEnvironmentProbe {
       ],
     );
   }
+
+  static CtEnvironmentReport _bleTimedOut() => const CtEnvironmentReport(
+    readiness: CtBleReadiness.transient,
+    detail: 'probe timed out',
+  );
 
   Future<CtEnvironmentReport> _guardedBleProbe() async {
     try {

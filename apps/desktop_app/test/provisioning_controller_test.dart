@@ -276,6 +276,27 @@ void main() {
       expect(source.stopCount, 1); // 停源状态未被扰动
     });
 
+    // Round-3 A2: a completed check must stamp selfCheckAt and always clear
+    // the in-flight flag — a stuck flag silences the re-check button forever.
+    test('every check stamps selfCheckAt and clears the in-flight flag',
+        () async {
+      final source = FakeSource();
+      final controller = makeController(source);
+      addTearDown(controller.dispose);
+      addTearDown(source.close);
+
+      await controller.runSelfCheck();
+      final first = controller.selfCheckAt;
+      expect(first, isNotNull);
+      expect(controller.selfChecking, isFalse);
+
+      // Re-check (mid-scan revisit): fresh stamp object, flag not left on.
+      await controller.runSelfCheck();
+      expect(identical(controller.selfCheckAt, first), isFalse);
+      expect(controller.selfChecking, isFalse);
+      expect(controller.phase, SessionPhase.scanning);
+    });
+
     test('blocked selfcheck can be re-run after the environment is fixed (A3)',
         () async {
       final source = FakeSource();

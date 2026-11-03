@@ -32,6 +32,8 @@
   "selfcheckReady": "Environment ready — scanning starts automatically",
   "selfcheckReadyIdle": "Environment ready",
   "selfcheckCountdownHint": "s until scanning starts",
+  "selfcheckLastRun": "Last check {time}",
+  "@selfcheckLastRun": { "placeholders": { "time": { "type": "String" } } },
   "selfcheckHeld": "Staying here — start the scan when the channels look right",
   "btnStay": "Stay here",
   "btnScanNow": "Scan now",

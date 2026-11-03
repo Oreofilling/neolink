@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:ble_universal/ble_universal.dart';
 import 'package:desktop_app/services/environment_probe.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -142,6 +144,28 @@ void main() {
       final report = await probe.probe();
 
       expect(report.canProceed, isFalse);
+    });
+
+    // Round-3 A2: a wedged probe leg must resolve via the cap, not hang the
+    // caller (the controller's in-flight flag would brick the re-check
+    // button).
+    test('a hung leg resolves as a degraded report after the cap', () async {
+      final probe = DesktopEnvironmentProbe(
+        probeBle: () => Completer<CtEnvironmentReport>().future,
+        enumerateAdapters: () => Completer<String?>().future,
+        legTimeout: const Duration(milliseconds: 50),
+      );
+
+      final report = await probe.probe();
+
+      final ble = report.channel(DiscoveryChannel.ble)!;
+      expect(ble.capability, ChannelCapability.limited);
+      expect(ble.reason, 'transient');
+      expect(ble.detail, contains('timed out'));
+      expect(
+        report.channel(DiscoveryChannel.accessPoint)?.reason,
+        'adapter_probe_failed',
+      );
     });
   });
 }

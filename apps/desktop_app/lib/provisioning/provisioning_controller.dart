@@ -84,6 +84,10 @@ class ProvisioningController extends ChangeNotifier {
   /// 自检结果（首次完成后保持，供各页展示通道状态）。
   EnvironmentCheckReport? environmentReport;
 
+  /// 上次自检完成时刻（页面渲染「上次检测」戳——重检后行值可能不变，
+  /// 时间戳证明检测确实跑过）。
+  DateTime? selfCheckAt;
+
   /// 自检是否正在执行（页面骨架态）。
   bool get selfChecking => _selfChecking;
   bool _selfChecking = false;
@@ -162,8 +166,15 @@ class ProvisioningController extends ChangeNotifier {
     _selfChecking = true;
     _cancelSelfCheckHold();
     notifyListeners();
-    environmentReport = await _probe.probe();
-    _selfChecking = false;
+    // finally guarantees the in-flight flag resets even if the probe layer
+    // ever throws — a stuck flag would silence the re-check button forever
+    // (round-3 A2).
+    try {
+      environmentReport = await _probe.probe();
+    } finally {
+      _selfChecking = false;
+      selfCheckAt = DateTime.now();
+    }
     final report = environmentReport!;
     if (_machine.phase != SessionPhase.selfChecking) {
       notifyListeners();

@@ -2,8 +2,10 @@
 // 返回列表；扫描超时空态页；能力页节列表与勾选。
 library;
 
+import 'dart:async';
 import 'dart:io';
 
+import 'package:ble_universal/ble_universal.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:communication_domain/communication_domain.dart';
@@ -11,6 +13,7 @@ import 'package:provisioning_session/provisioning_session.dart';
 
 import 'package:desktop_app/app.dart';
 import 'package:desktop_app/provisioning/provisioning_controller.dart';
+import 'package:desktop_app/services/environment_probe.dart';
 import 'package:desktop_app/services/settings_store.dart';
 
 import 'provisioning_fakes.dart';
@@ -392,6 +395,61 @@ void main() {
     expect(find.text('重新检测'), findsOneWidget);
 
     // Converge past the scan window to clear pending timers.
+    await tester.pump(const Duration(seconds: 21));
+    expect(controller.phase, SessionPhase.scanEmpty);
+  });
+
+  testWidgets('M3d recheck feedback: running label, then last-checked stamp',
+      (tester) async {
+    final source = FakeSource();
+    final device = FakeCtDevice();
+    // Gated probe: the BLE leg resolves only when the test completes it,
+    // so the in-flight window is observable.
+    var gate = Completer<CtEnvironmentReport>();
+    CtEnvironmentReport readyReport() => const CtEnvironmentReport(
+      readiness: CtBleReadiness.ready,
+      detail: 'radio on',
+    );
+    final controller = ProvisioningController(
+      environmentProbe: DesktopEnvironmentProbe(
+        probeBle: () => gate.future,
+        enumerateAdapters: () async =>
+            '[{"Name":"Wi-Fi","Status":"Up","PhysicalMediaType":"Native 802.11"}]',
+      ),
+      discoverySource: source,
+      establishPairing: (_) async {},
+      connectChannel: (_, __) async => device,
+      selfCheckHold: const Duration(seconds: 5),
+    );
+    addTearDown(source.close);
+    addTearDown(device.close);
+    addTearDown(controller.dispose);
+
+    await pumpApp(tester, controller);
+    await tester.pump(); // post-frame runSelfCheck fired; gate still pending
+    expect(find.text('正在检测环境…'), findsOneWidget); // in-flight label
+    expect(controller.selfCheckAt, isNull);
+
+    gate.complete(readyReport());
+    await settle(tester); // first check done -> countdown
+    expect(find.text('5'), findsOneWidget);
+    expect(find.textContaining('上次检测'), findsOneWidget); // stamp proves it ran
+
+    // Re-check: countdown cancelled, running label back, then a fresh stamp.
+    final firstAt = controller.selfCheckAt;
+    gate = Completer<CtEnvironmentReport>();
+    await tester.tap(find.text('重新检测'));
+    await settle(tester);
+    expect(find.text('正在检测环境…'), findsOneWidget);
+    expect(controller.selfCheckCountdown, isNull);
+    gate.complete(readyReport());
+    await settle(tester);
+    expect(identical(controller.selfCheckAt, firstAt), isFalse);
+    expect(find.text('5'), findsOneWidget); // countdown restarted
+
+    // Converge: enter the scan, pump past the window (no pending timers).
+    await tester.tap(find.text('立即扫描'));
+    await settle(tester);
     await tester.pump(const Duration(seconds: 21));
     expect(controller.phase, SessionPhase.scanEmpty);
   });

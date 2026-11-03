@@ -32,6 +32,8 @@
   "selfcheckReady": "环境就绪，自动进入扫描",
   "selfcheckReadyIdle": "环境就绪",
   "selfcheckCountdownHint": "秒后自动进入扫描",
+  "selfcheckLastRun": "上次检测 {time}",
+  "@selfcheckLastRun": { "placeholders": { "time": { "type": "String" } } },
   "selfcheckHeld": "已停留本页；确认通道无误后点「立即扫描」",
   "btnStay": "停留本页",
   "btnScanNow": "立即扫描",
