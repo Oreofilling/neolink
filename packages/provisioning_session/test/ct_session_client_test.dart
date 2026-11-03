@@ -16,6 +16,8 @@ final class FakeCtDevice implements CtGattChannel {
     this.model = 'NE301',
     this.firmware = 'v0.3.2-dev',
     this.rejectDeviceInfo = false,
+    this.rejectConfigSet,
+    this.supportsConfigGet = true,
   });
 
   @override
@@ -25,6 +27,18 @@ final class FakeCtDevice implements CtGattChannel {
   final String model;
   final String firmware;
   final StreamController<int> _mtuChanges = StreamController<int>.broadcast();
+
+  /// config.set 改回指定错误码（如 FIELD_NOT_SUPPORTED）。
+  final String? rejectConfigSet;
+
+  /// false → config.get 回 UNSUPPORTED_OPERATION。
+  final bool supportsConfigGet;
+
+  /// 最近一次收到的 config.set data（断言载荷原样到达）。
+  Map<String, Object?>? lastConfigSet;
+
+  /// communication.scan 收到的请求 data（断言 section/cursor）。
+  Map<String, Object?>? lastScanRequest;
 
   @override
   Stream<int> get mtuChanges => _mtuChanges.stream;
@@ -118,6 +132,93 @@ final class FakeCtDevice implements CtGattChannel {
         ok: true,
       );
       disconnected = true;
+    } else if (envelope.opName == ProvOp.configSet.wireName) {
+      lastConfigSet = Map<String, Object?>.from(envelope.data);
+      if (rejectConfigSet case final code?) {
+        responseJson = encodeResponse(
+          id: envelope.id,
+          op: '${ProvOp.configSet.wireName}.result',
+          ok: false,
+          error: ProvError(codeName: code, message: 'field not in fields'),
+        );
+      } else {
+        responseJson = encodeResponse(
+          id: envelope.id,
+          op: '${ProvOp.configSet.wireName}.result',
+          ok: true,
+          data: <String, Object?>{
+            'stored': (envelope.data).keys.toList(),
+            'apply': 'reconnect',
+          },
+        );
+      }
+    } else if (envelope.opName == ProvOp.communicationScan.wireName) {
+      lastScanRequest = Map<String, Object?>.from(envelope.data);
+      final cursor = envelope.data['cursor'];
+      // 两页固定数据：cursor 为空第一页（more=true），否则第二页收尾。
+      final firstPage = cursor == null || cursor == '';
+      responseJson = encodeResponse(
+        id: envelope.id,
+        op: '${ProvOp.communicationScan.wireName}.result',
+        ok: true,
+        data: <String, Object?>{
+          'section': envelope.data['section'],
+          'items': firstPage
+              ? [
+                  {
+                    'network_id': 'Office-2.4G',
+                    'display_name': 'Office-2.4G',
+                    'signal': -48,
+                    'channel': 6,
+                  },
+                  {
+                    'network_id': 'CT-HaLow',
+                    'display_name': 'CT-HaLow',
+                    'signal': -71,
+                    'country': 'CN',
+                  },
+                ]
+              : [
+                  {
+                    'network_id': 'Neighbor-5G',
+                    'display_name': 'Neighbor-5G',
+                    'signal': -82,
+                    'channel': 36,
+                  },
+                ],
+          'more': firstPage,
+          'cursor': firstPage ? 'page-2' : '',
+        },
+      );
+    } else if (envelope.opName == 'config.get') {
+      if (!supportsConfigGet) {
+        responseJson = encodeResponse(
+          id: envelope.id,
+          op: 'config.get.result',
+          ok: false,
+          error: const ProvError(
+            codeName: 'UNSUPPORTED_OPERATION',
+            message: 'config.get not supported',
+          ),
+        );
+      } else {
+        responseJson = encodeResponse(
+          id: envelope.id,
+          op: 'config.get.result',
+          ok: true,
+          data: <String, Object?>{
+            'wifi': {
+              'ssid': 'Office-2.4G',
+              'password': '********',
+            },
+            'mqtt': {
+              'enable': true,
+              'host': 'mqtt.example.com',
+              'port': 8883,
+            },
+          },
+        );
+      }
     } else {
       responseJson = encodeResponse(
         id: envelope.id,
@@ -248,5 +349,105 @@ void main() {
         ),
       ),
     );
+  });
+
+  test('config.set roundtrip delivers payload and reports stored sections',
+      () async {
+    final device = FakeCtDevice();
+    final client = CtSessionClient(device);
+    addTearDown(client.dispose);
+    addTearDown(device.close);
+
+    await client.open();
+    final result = await client.setConfig({
+      'wifi': {'ssid': 'Office-2.4G', 'password': 'example-password'},
+      'mqtt': {'enable': true, 'host': 'mqtt.example.com', 'port': 8883},
+    });
+
+    expect(device.lastConfigSet, {
+      'wifi': {'ssid': 'Office-2.4G', 'password': 'example-password'},
+      'mqtt': {'enable': true, 'host': 'mqtt.example.com', 'port': 8883},
+    });
+    expect(result.stored, containsAll(['wifi', 'mqtt']));
+    expect(result.apply, 'reconnect');
+  });
+
+  test('config.set rejection keeps protocol code as reason', () async {
+    final device = FakeCtDevice(rejectConfigSet: 'FIELD_NOT_SUPPORTED');
+    final client = CtSessionClient(device);
+    addTearDown(client.dispose);
+    addTearDown(device.close);
+
+    await client.open();
+    await expectLater(
+      client.setConfig({
+        'webhook': {'enable': true, 'url': 'https://e/h', 'secret': 's'},
+      }),
+      throwsA(
+        isA<ProvSessionException>()
+            .having((error) => error.reason, 'reason', 'field_not_supported')
+            .having(
+              (error) => error.message,
+              'message',
+              contains('FIELD_NOT_SUPPORTED'),
+            ),
+      ),
+    );
+  });
+
+  test('communication.scan pages through cursor with extras preserved',
+      () async {
+    final device = FakeCtDevice();
+    final client = CtSessionClient(device);
+    addTearDown(client.dispose);
+    addTearDown(device.close);
+
+    await client.open();
+    final first = await client.scanNetworks(section: 'wifi');
+
+    expect(device.lastScanRequest, {'section': 'wifi'});
+    expect(first.section, 'wifi');
+    expect(first.items, hasLength(2));
+    expect(first.items.first.networkId, 'Office-2.4G');
+    expect(first.items.first.signal, -48);
+    expect(first.items.first.channel, 6);
+    // halow 条目的扩展字段（country）进 extras，不丢。
+    expect(first.items[1].extras, containsPair('country', 'CN'));
+    expect(first.more, isTrue);
+    expect(first.cursor, 'page-2');
+
+    final second = await client.scanNetworks(
+      section: 'wifi',
+      cursor: first.cursor,
+    );
+    expect(second.items, hasLength(1));
+    expect(second.items.first.networkId, 'Neighbor-5G');
+    expect(second.more, isFalse);
+    expect(second.cursor, isEmpty);
+    expect(device.lastScanRequest, {'section': 'wifi', 'cursor': 'page-2'});
+  });
+
+  test('config.get returns persisted values; unsupported resolves null',
+      () async {
+    final device = FakeCtDevice();
+    final client = CtSessionClient(device);
+    addTearDown(client.dispose);
+    addTearDown(device.close);
+
+    await client.open();
+    final stored = await client.getConfig();
+
+    expect(stored?['wifi'], {
+      'ssid': 'Office-2.4G',
+      'password': '********', // 密码类字段由设备决定掩码，客户端原样透传
+    });
+    expect(stored?['mqtt']?['port'], 8883);
+
+    final bare = FakeCtDevice(supportsConfigGet: false);
+    final bareClient = CtSessionClient(bare);
+    addTearDown(bareClient.dispose);
+    addTearDown(bare.close);
+    await bareClient.open();
+    expect(await bareClient.getConfig(), isNull);
   });
 }

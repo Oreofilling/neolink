@@ -7,6 +7,7 @@ import 'package:ble_adapter/ble_adapter.dart';
 import 'package:ct_prov_core/ct_prov_core.dart';
 
 import 'capabilities.dart';
+import 'config_ops.dart';
 import 'session_exception.dart';
 
 /// device.info.get 的解析结果（§7 固定字段集，形状不符即抛错）。
@@ -134,6 +135,80 @@ final class CtSessionClient {
       timeout: timeout,
     );
     return CapabilitiesResult.fromResponse(response);
+  }
+
+  /// 下发配置（§10）：[sections] 为「节名 → 节对象」，可直接使用
+  /// communication_domain 组装的载荷；成功即已持久化（幂等覆盖）。
+  Future<SetConfigResult> setConfig(
+    Map<String, Map<String, Object?>> sections, {
+    Duration timeout = kDefaultRequestTimeout,
+  }) async {
+    final response = await _requireTransport().sendRequest(
+      ProvRequest(
+        id: _nextRequestId++,
+        opName: ProvOp.configSet.wireName,
+        data: sections,
+      ),
+      timeout: timeout,
+    );
+    return SetConfigResult.fromResponse(response);
+  }
+
+  /// 扫描网络（§9）：仅能力 scannable=true 的节；[cursor] 取上一页
+  /// 返回值继续翻页。
+  Future<ScanNetworksResult> scanNetworks({
+    required String section,
+    String? cursor,
+    Duration timeout = kDefaultRequestTimeout,
+  }) async {
+    final response = await _requireTransport().sendRequest(
+      ProvRequest(
+        id: _nextRequestId++,
+        opName: ProvOp.communicationScan.wireName,
+        data: {
+          'section': section,
+          if (cursor != null && cursor.isNotEmpty) 'cursor': cursor,
+        },
+      ),
+      timeout: timeout,
+    );
+    return ScanNetworksResult.fromResponse(response);
+  }
+
+  /// 读取当前已存配置（§10 可选操作）：设备不支持（UNSUPPORTED_OPERATION）
+  /// 时返回 null，供表单预填优雅降级；其余错误照常抛出。
+  Future<Map<String, Map<String, Object?>>?> getConfig({
+    Duration timeout = kDefaultRequestTimeout,
+  }) async {
+    final response = await _requireTransport().sendRequest(
+      ProvRequest(
+        id: _nextRequestId++,
+        opName: ProvOp.configGet.wireName,
+        data: const {},
+      ),
+      timeout: timeout,
+    );
+    if (!response.ok) {
+      final code = response.error?.codeName ?? 'UNKNOWN';
+      if (code == ProvErrorCode.unsupportedOperation.wireName) return null;
+      throw ProvSessionException(
+        code.toLowerCase(),
+        '$code: ${response.error?.message ?? ''}',
+      );
+    }
+    if (response.opName != '${ProvOp.configGet.wireName}.result') {
+      throw ProvSessionException('config_get_op', response.opName);
+    }
+    final data = response.data;
+    if (data == null || data.values.any((value) => value is! Map)) {
+      throw const ProvSessionException(
+        'config_get_shape',
+        'data must be a map of section objects',
+      );
+    }
+    return data.map(
+      (key, value) => MapEntry(key, Map<String, Object?>.from(value as Map)),
+    );
   }
 
   /// 结束会话（§11）：设备回 ok:true 空 data 后主动断链；链路级断开由
