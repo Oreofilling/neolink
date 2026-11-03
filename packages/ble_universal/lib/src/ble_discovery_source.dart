@@ -8,7 +8,25 @@ import 'dart:async';
 
 import 'package:discovery_domain/discovery_domain.dart';
 
+import 'environment_check.dart';
 import 'universal_ct_scanner.dart';
+
+/// BLE 自检结论 → 通道就绪结论（M2-3）。ready → available；transient →
+/// limited（稍后重检可恢复）；其余（射频关/未授权/不支持）→ unavailable。
+/// reason 直接沿用 [CtBleReadiness] 的枚举名，UI 按稳定标识映射文案。
+ChannelReadiness bleChannelReadiness(CtEnvironmentReport report) =>
+    ChannelReadiness(
+      channel: DiscoveryChannel.ble,
+      capability: switch (report.readiness) {
+        CtBleReadiness.ready => ChannelCapability.available,
+        CtBleReadiness.transient => ChannelCapability.limited,
+        CtBleReadiness.poweredOff ||
+        CtBleReadiness.unauthorized ||
+        CtBleReadiness.unsupported => ChannelCapability.unavailable,
+      },
+      reason: report.readiness.name,
+      detail: report.detail,
+    );
 
 /// 把一条 BLE 扫描记录归一成发现候选。
 ///

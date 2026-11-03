@@ -9,6 +9,50 @@ import 'dart:async';
 
 enum DiscoveryChannel { ble, accessPoint, ctDisc }
 
+/// 通道可用性结论：limited 表示能力受限（可继续但降级标注，如无线网卡
+/// 被禁用、通道本版未接入），unavailable 表示该通道完全不可用。
+enum ChannelCapability { available, limited, unavailable }
+
+/// 单通道自检结论。[reason] 为稳定标识（UI 映射文案），[detail] 携带
+/// 原始诊断串（日志/诊断区直接展示，不参与本地化）。
+final class ChannelReadiness {
+  const ChannelReadiness({
+    required this.channel,
+    required this.capability,
+    required this.reason,
+    this.detail,
+  });
+
+  final DiscoveryChannel channel;
+  final ChannelCapability capability;
+
+  /// 稳定标识，如 'powered_off' / 'no_wlan_adapter'；available 时为
+  /// 'ready' 类取值。
+  final String reason;
+
+  final String? detail;
+}
+
+/// 环境自检汇总：三路通道各自结论 + 是否可进入扫描。
+final class EnvironmentCheckReport {
+  const EnvironmentCheckReport({required this.channels});
+
+  final List<ChannelReadiness> channels;
+
+  /// 至少一条通道完全可用即可继续（仅其余通道受限不阻塞，技术设计
+  /// §11「环境就绪或仅通道受限」）；全部受限/不可用时停留自检。
+  bool get canProceed =>
+      channels.any((entry) => entry.capability == ChannelCapability.available);
+
+  /// 按通道取结论；报告未覆盖该通道时返回 null。
+  ChannelReadiness? channel(DiscoveryChannel channel) {
+    for (final entry in channels) {
+      if (entry.channel == channel) return entry;
+    }
+    return null;
+  }
+}
+
 /// 当前扫描任务内的临时候选（不落盘、不跨任务）。
 ///
 /// [macSuffix] 是跨通道合并键（设备规范主 MAC 后 6 位十六进制大写）；
@@ -60,16 +104,17 @@ final class DiscoveryCandidate {
     bool? busy,
     DateTime? lastSeen,
     int? signal,
-  }) => DiscoveryCandidate(
-    candidateId: candidateId,
-    macSuffix: macSuffix ?? this.macSuffix,
-    modelHint: modelHint ?? this.modelHint,
-    channels: channels ?? this.channels,
-    provisionable: provisionable ?? this.provisionable,
-    busy: busy ?? this.busy,
-    lastSeen: lastSeen ?? this.lastSeen,
-    signal: signal ?? this.signal,
-  );
+  }) =>
+      DiscoveryCandidate(
+        candidateId: candidateId,
+        macSuffix: macSuffix ?? this.macSuffix,
+        modelHint: modelHint ?? this.modelHint,
+        channels: channels ?? this.channels,
+        provisionable: provisionable ?? this.provisionable,
+        busy: busy ?? this.busy,
+        lastSeen: lastSeen ?? this.lastSeen,
+        signal: signal ?? this.signal,
+      );
 }
 
 /// 发现源端口：各通道适配器实现（BLE 已接入；AP / CT-Disc 预留，
@@ -134,15 +179,16 @@ final class DiscoveryRegistry {
   DiscoveryCandidate _merge(
     DiscoveryCandidate older,
     DiscoveryCandidate newer,
-  ) => older.copyWith(
-    macSuffix: older.macSuffix ?? newer.macSuffix,
-    modelHint: older.modelHint ?? newer.modelHint,
-    channels: <DiscoveryChannel>{...older.channels, ...newer.channels},
-    busy: newer.busy,
-    provisionable: newer.busy ? false : newer.provisionable,
-    lastSeen: newer.lastSeen.isAfter(older.lastSeen)
-        ? newer.lastSeen
-        : older.lastSeen,
-    signal: newer.signal ?? older.signal,
-  );
+  ) =>
+      older.copyWith(
+        macSuffix: older.macSuffix ?? newer.macSuffix,
+        modelHint: older.modelHint ?? newer.modelHint,
+        channels: <DiscoveryChannel>{...older.channels, ...newer.channels},
+        busy: newer.busy,
+        provisionable: newer.busy ? false : newer.provisionable,
+        lastSeen: newer.lastSeen.isAfter(older.lastSeen)
+            ? newer.lastSeen
+            : older.lastSeen,
+        signal: newer.signal ?? older.signal,
+      );
 }

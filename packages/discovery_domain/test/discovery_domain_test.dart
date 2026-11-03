@@ -12,16 +12,17 @@ void main() {
     bool provisionable = true,
     int? signal = -55,
     String? modelHint = 'NE101',
-  }) => DiscoveryCandidate(
-    candidateId: candidateId,
-    macSuffix: macSuffix,
-    modelHint: modelHint,
-    channels: const {DiscoveryChannel.ble},
-    provisionable: provisionable,
-    busy: busy,
-    lastSeen: lastSeen ?? t0,
-    signal: signal,
-  );
+  }) =>
+      DiscoveryCandidate(
+        candidateId: candidateId,
+        macSuffix: macSuffix,
+        modelHint: modelHint,
+        channels: const {DiscoveryChannel.ble},
+        provisionable: provisionable,
+        busy: busy,
+        lastSeen: lastSeen ?? t0,
+        signal: signal,
+      );
 
   test('发现通道枚举为三路', () {
     expect(DiscoveryChannel.values.length, 3);
@@ -144,6 +145,69 @@ void main() {
       );
       expect(removed, isEmpty);
       expect(registry.snapshot, hasLength(1));
+    });
+  });
+
+  group('环境自检汇总', () {
+    ChannelReadiness readiness(
+      DiscoveryChannel channel,
+      ChannelCapability capability, {
+      String reason = 'ready',
+    }) =>
+        ChannelReadiness(
+          channel: channel,
+          capability: capability,
+          reason: reason,
+        );
+
+    test('至少一条通道可用即可继续（其余仅受限不阻塞）', () {
+      final report = EnvironmentCheckReport(
+        channels: [
+          readiness(DiscoveryChannel.ble, ChannelCapability.available),
+          readiness(
+            DiscoveryChannel.accessPoint,
+            ChannelCapability.limited,
+            reason: 'wlan_disabled',
+          ),
+          readiness(
+            DiscoveryChannel.ctDisc,
+            ChannelCapability.unavailable,
+            reason: 'reserved',
+          ),
+        ],
+      );
+      expect(report.canProceed, isTrue);
+    });
+
+    test('全部受限或不可用时不可继续', () {
+      final report = EnvironmentCheckReport(
+        channels: [
+          readiness(
+            DiscoveryChannel.ble,
+            ChannelCapability.unavailable,
+            reason: 'powered_off',
+          ),
+          readiness(
+            DiscoveryChannel.accessPoint,
+            ChannelCapability.limited,
+            reason: 'wlan_disabled',
+          ),
+        ],
+      );
+      expect(report.canProceed, isFalse);
+    });
+
+    test('按通道取结论，未覆盖返回 null', () {
+      final report = EnvironmentCheckReport(
+        channels: [
+          readiness(DiscoveryChannel.ble, ChannelCapability.available),
+        ],
+      );
+      expect(
+        report.channel(DiscoveryChannel.ble)?.capability,
+        ChannelCapability.available,
+      );
+      expect(report.channel(DiscoveryChannel.ctDisc), isNull);
     });
   });
 }

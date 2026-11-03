@@ -14,6 +14,10 @@ dependencies:
     path: ../../packages/neolink_ui
   ct_prov_core:
     path: ../../packages/ct_prov_core
+  ble_adapter:
+    path: ../../packages/ble_adapter
+  ble_universal:
+    path: ../../packages/ble_universal
   discovery_domain:
     path: ../../packages/discovery_domain
   provisioning_session:

@@ -77,4 +77,40 @@ void main() {
 
     expect(candidate.macSuffix, 'A1B2C3');
   });
+
+  group('BLE 通道就绪映射（M2-3）', () {
+    ChannelReadiness map(CtBleReadiness readiness) => bleChannelReadiness(
+      CtEnvironmentReport(readiness: readiness, detail: 'diag'),
+    );
+
+    test('ready → available，reason 沿用枚举名', () {
+      final entry = map(CtBleReadiness.ready);
+      expect(entry.channel, DiscoveryChannel.ble);
+      expect(entry.capability, ChannelCapability.available);
+      expect(entry.reason, 'ready');
+      expect(entry.detail, 'diag');
+    });
+
+    test('transient → limited（稍后重检可恢复）', () {
+      expect(
+        map(CtBleReadiness.transient).capability,
+        ChannelCapability.limited,
+      );
+    });
+
+    test('射频关/未授权/不支持 → unavailable', () {
+      expect(
+        map(CtBleReadiness.poweredOff).capability,
+        ChannelCapability.unavailable,
+      );
+      expect(
+        map(CtBleReadiness.unauthorized).capability,
+        ChannelCapability.unavailable,
+      );
+      expect(
+        map(CtBleReadiness.unsupported).capability,
+        ChannelCapability.unavailable,
+      );
+    });
+  });
 }
