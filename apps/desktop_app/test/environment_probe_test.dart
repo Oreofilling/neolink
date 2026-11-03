@@ -1,6 +1,5 @@
 import 'package:ble_universal/ble_universal.dart';
 import 'package:desktop_app/services/environment_probe.dart';
-import 'package:discovery_domain/discovery_domain.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

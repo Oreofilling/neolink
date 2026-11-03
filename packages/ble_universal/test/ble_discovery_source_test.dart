@@ -1,5 +1,4 @@
 import 'package:ble_universal/ble_universal.dart';
-import 'package:discovery_domain/discovery_domain.dart';
 import 'package:test/test.dart';
 
 void main() {

@@ -4,7 +4,6 @@ import 'package:neolink_ui/neolink_ui.dart';
 
 import '../../l10n/app_localizations.dart';
 import '../../l10n/channel_labels.dart';
-import '../../l10n/labels.dart';
 import '../../provisioning/provisioning_controller.dart';
 
 /// 环境自检页（M2-4）：进入即自动执行，三路通道逐行给出可用性结论；

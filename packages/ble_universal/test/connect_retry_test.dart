@@ -9,13 +9,10 @@ void main() {
     var calls = 0;
 
     // Act
-    final result = await runWithConnectRetry(
-      () async {
-        calls++;
-        return 'ok';
-      },
-      pause: Duration.zero,
-    );
+    final result = await runWithConnectRetry(() async {
+      calls++;
+      return 'ok';
+    }, pause: Duration.zero);
 
     // Assert
     expect(result, 'ok');
@@ -27,16 +24,13 @@ void main() {
     var calls = 0;
 
     // Act
-    final result = await runWithConnectRetry<int>(
-      () async {
-        calls++;
-        if (calls < 3) {
-          throw TimeoutException('gatt operation stalled');
-        }
-        return calls;
-      },
-      pause: Duration.zero,
-    );
+    final result = await runWithConnectRetry<int>(() async {
+      calls++;
+      if (calls < 3) {
+        throw TimeoutException('gatt operation stalled');
+      }
+      return calls;
+    }, pause: Duration.zero);
 
     // Assert
     expect(result, 3);
@@ -90,10 +84,7 @@ void main() {
   test('rejects maxAttempts below one', () async {
     // Act / Assert
     await expectLater(
-      runWithConnectRetry(
-        () async => 'unused',
-        maxAttempts: 0,
-      ),
+      runWithConnectRetry(() async => 'unused', maxAttempts: 0),
       throwsA(isA<ArgumentError>()),
     );
   });

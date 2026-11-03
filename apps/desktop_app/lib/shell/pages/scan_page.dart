@@ -5,7 +5,6 @@ import 'package:provisioning_session/provisioning_session.dart';
 
 import '../../l10n/app_localizations.dart';
 import '../../l10n/channel_labels.dart';
-import '../../l10n/labels.dart';
 import '../../provisioning/provisioning_controller.dart';
 
 /// 扫描页（M2-4）：通道状态条 + 候选列表。扫描中显示骨架行；出候选后

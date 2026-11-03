@@ -10,7 +10,6 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:ble_universal/ble_universal.dart';
-import 'package:discovery_domain/discovery_domain.dart';
 
 /// 无线网卡在 Get-NetAdapter 里的 PhysicalMediaType 取值。
 const String kWlanMediaType = 'Native 802.11';

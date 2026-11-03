@@ -3,7 +3,6 @@ import 'package:neolink_ui/neolink_ui.dart';
 import 'package:provisioning_session/provisioning_session.dart';
 
 import '../../l10n/app_localizations.dart';
-import '../../l10n/labels.dart';
 import '../../provisioning/provisioning_controller.dart';
 
 /// 配置节页（M2-4）：能力驱动展示——设备信息卡 + 当前网络 + 节列表

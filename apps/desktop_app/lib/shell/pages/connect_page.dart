@@ -3,7 +3,6 @@ import 'package:neolink_ui/neolink_ui.dart';
 import 'package:provisioning_session/provisioning_session.dart';
 
 import '../../l10n/app_localizations.dart';
-import '../../l10n/labels.dart';
 import '../../provisioning/provisioning_controller.dart';
 
 /// 建立连接页（M2-4）：配对 → GATT 链路 → 读设备信息 → 读能力，全程
