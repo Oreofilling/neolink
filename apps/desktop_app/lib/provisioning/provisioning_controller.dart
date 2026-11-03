@@ -490,7 +490,7 @@ class ProvisioningController extends ChangeNotifier {
 
   /// Cursor-based next page (§9: cursor only valid in this connection).
   Future<void> loadMoreNetworks() async {
-    if (!_scanMore ||
+    if (!scanMore ||
         _scanCursor.isEmpty ||
         _networkScanning ||
         _machine.phase != SessionPhase.editingConfig) {
