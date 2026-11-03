@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:ble_universal/src/system_pairing.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
