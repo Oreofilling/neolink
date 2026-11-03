@@ -78,22 +78,27 @@ final class CtProvGattTransport {
     }
     final completer = Completer<ProvResponse>();
     _pending[request.id] = completer;
-
-    final frames = slicePacket(
-      mtu: _channel.mtu,
-      kind: ProvPacketKind.request,
-      messageId: _messageIds.next(),
-      jsonText: encodeRequest(id: request.id, op: request.opName, data: request.data),
-    );
-    for (final frame in frames) {
-      await _channel.writeC2d(frame);
-    }
-
     try {
+      final frames = slicePacket(
+        mtu: _channel.mtu,
+        kind: ProvPacketKind.request,
+        messageId: _messageIds.next(),
+        jsonText: encodeRequest(
+          id: request.id,
+          op: request.opName,
+          data: request.data,
+        ),
+      );
+      for (final frame in frames) {
+        await _channel.writeC2d(frame);
+      }
       return await completer.future.timeout(timeout);
-    } on TimeoutException {
-      _pending.remove(request.id);
-      rethrow;
+    } finally {
+      // 写入失败会发生在等待 timeout 之前（例如 Windows 已移除设备）。
+      // 无论写入、超时还是正常响应，都不能把 id 留在在途表中。
+      if (identical(_pending[request.id], completer)) {
+        _pending.remove(request.id);
+      }
     }
   }
 

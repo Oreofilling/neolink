@@ -10,33 +10,52 @@ import 'package:test_vectors/test_vectors.dart' as tv;
 void main() {
   /// 按协议文档示例构造 device.info.get 请求。
   ProvRequest deviceInfoRequest() => const ProvRequest(
-        id: 1,
-        opName: 'device.info.get',
-        data: <String, Object?>{},
-      );
+    id: 1,
+    opName: 'device.info.get',
+    data: <String, Object?>{},
+  );
 
   /// 取向量 JSON 原文。
   String jsonOf(String id) =>
       tv.kEnvelopeVectors.firstWhere((v) => v.id == id).jsonText;
 
   /// 把 JSON 原文按 MTU 切成指示帧序列（模拟设备侧发送）。
-  List<List<int>> framesOf(String jsonText, {int mtu = 23, required int messageId}) =>
-      slicePacket(mtu: mtu, kind: ProvPacketKind.response, messageId: messageId, jsonText: jsonText);
+  List<List<int>> framesOf(
+    String jsonText, {
+    int mtu = 23,
+    required int messageId,
+  }) => slicePacket(
+    mtu: mtu,
+    kind: ProvPacketKind.response,
+    messageId: messageId,
+    jsonText: jsonText,
+  );
 
   test('发送请求：写出帧与切片器输出逐字节一致，message_id 递增', () async {
     final channel = FakeChannel();
     final transport = CtProvGattTransport(channel)..start();
     final first = transport.sendRequest(deviceInfoRequest());
-    channel.respond(framesOf(jsonOf('env-resp-device-info-ne101'), messageId: 0));
+    channel.respond(
+      framesOf(jsonOf('env-resp-device-info-ne101'), messageId: 0),
+    );
     await first;
     final second = transport.sendRequest(
-      const ProvRequest(id: 2, opName: 'communication.capabilities.get', data: {}),
+      const ProvRequest(
+        id: 2,
+        opName: 'communication.capabilities.get',
+        data: {},
+      ),
     );
-    channel.respond(framesOf(jsonOf('env-resp-capabilities-ne301'), messageId: 1));
+    channel.respond(
+      framesOf(jsonOf('env-resp-capabilities-ne301'), messageId: 1),
+    );
     await second;
 
     // 信封文本与协议示例逐字节一致（黄金锚点），再按切片器比对写出帧。
-    expect(encodeRequest(id: 1, op: 'device.info.get', data: {}), jsonOf('env-req-device-info'));
+    expect(
+      encodeRequest(id: 1, op: 'device.info.get', data: {}),
+      jsonOf('env-req-device-info'),
+    );
     final req1 = slicePacket(
       mtu: 23,
       kind: ProvPacketKind.request,
@@ -47,7 +66,11 @@ void main() {
       mtu: 23,
       kind: ProvPacketKind.request,
       messageId: 1,
-      jsonText: encodeRequest(id: 2, op: 'communication.capabilities.get', data: {}),
+      jsonText: encodeRequest(
+        id: 2,
+        op: 'communication.capabilities.get',
+        data: {},
+      ),
     );
     expect(req1, hasLength(3), reason: '41B 请求在 MTU 23 下切 3 片');
     expect(req2, hasLength(4), reason: '56B 请求切 4 片');
@@ -58,7 +81,9 @@ void main() {
     final channel = FakeChannel();
     final transport = CtProvGattTransport(channel)..start();
     final future = transport.sendRequest(deviceInfoRequest());
-    channel.respond(framesOf(jsonOf('env-resp-device-info-ne101'), messageId: 4));
+    channel.respond(
+      framesOf(jsonOf('env-resp-device-info-ne101'), messageId: 4),
+    );
     final resp = await future;
     expect(resp.ok, isTrue);
     expect(resp.id, 1);
@@ -69,11 +94,15 @@ void main() {
     final channel = FakeChannel();
     final transport = CtProvGattTransport(channel)..start();
     final future = transport.sendRequest(deviceInfoRequest());
-    channel.respond(framesOf(jsonOf('env-unmatched-response-id'), messageId: 2));
+    channel.respond(
+      framesOf(jsonOf('env-unmatched-response-id'), messageId: 2),
+    );
     // 给事件循环一个节拍，确认未完成也未抛错
     await Future<void>.delayed(Duration.zero);
     expect(transport.ignoredResponses, 1, reason: '未知 id 计入忽略');
-    channel.respond(framesOf(jsonOf('env-resp-device-info-ne101'), messageId: 3));
+    channel.respond(
+      framesOf(jsonOf('env-resp-device-info-ne101'), messageId: 3),
+    );
     final resp = await future;
     expect(resp.id, 1);
   });
@@ -84,15 +113,16 @@ void main() {
     final events = <ProvEvent>[];
     transport.events.listen(events.add);
     final future = transport.sendRequest(deviceInfoRequest());
-    channel.respond(framesOf(
-      '{"seq":8,"event":"protocol.error","data":{}}',
-      messageId: 5,
-    ));
+    channel.respond(
+      framesOf('{"seq":8,"event":"protocol.error","data":{}}', messageId: 5),
+    );
     await Future<void>.delayed(Duration.zero);
     expect(events, hasLength(1));
     expect(events.first.seq, 8);
     expect(events.first.event, 'protocol.error');
-    channel.respond(framesOf(jsonOf('env-resp-device-info-ne101'), messageId: 6));
+    channel.respond(
+      framesOf(jsonOf('env-resp-device-info-ne101'), messageId: 6),
+    );
     await future;
   });
 
@@ -103,10 +133,16 @@ void main() {
     transport.frameErrors.listen(errors.add);
     final future = transport.sendRequest(deviceInfoRequest());
     final bad = framesOf(jsonOf('env-resp-device-info-ne101'), messageId: 7);
-    channel.respond([...bad.take(1), [0xC0, ...bad[1].sublist(1)], ...bad.skip(2)]);
+    channel.respond([
+      ...bad.take(1),
+      [0xC0, ...bad[1].sublist(1)],
+      ...bad.skip(2),
+    ]);
     await Future<void>.delayed(Duration.zero);
     expect(errors, contains('bad_magic'), reason: '坏 magic 必须上报');
-    channel.respond(framesOf(jsonOf('env-resp-device-info-ne101'), messageId: 8));
+    channel.respond(
+      framesOf(jsonOf('env-resp-device-info-ne101'), messageId: 8),
+    );
     await future;
   });
 
@@ -119,7 +155,9 @@ void main() {
     channel.respond(framesOf(jsonOf('env-invalid-bom'), messageId: 9));
     await Future<void>.delayed(Duration.zero);
     expect(errors, contains('envelope:bom'));
-    channel.respond(framesOf(jsonOf('env-resp-device-info-ne101'), messageId: 10));
+    channel.respond(
+      framesOf(jsonOf('env-resp-device-info-ne101'), messageId: 10),
+    );
     await future;
   });
 
@@ -127,13 +165,38 @@ void main() {
     final channel = FakeChannel();
     final transport = CtProvGattTransport(channel)..start();
     await expectLater(
-      transport.sendRequest(deviceInfoRequest(), timeout: const Duration(milliseconds: 10)),
+      transport.sendRequest(
+        deviceInfoRequest(),
+        timeout: const Duration(milliseconds: 10),
+      ),
       throwsA(isA<TimeoutException>()),
     );
     // 同一 id 可立即重发（挂起表已清理）
     final retry = transport.sendRequest(deviceInfoRequest());
-    channel.respond(framesOf(jsonOf('env-resp-device-info-ne101'), messageId: 11));
+    channel.respond(
+      framesOf(jsonOf('env-resp-device-info-ne101'), messageId: 11),
+    );
     await retry;
+  });
+
+  test('写入失败：清理挂起表，后续可重发同一 id', () async {
+    final channel = FakeChannel();
+    final transport = CtProvGattTransport(channel)..start();
+    final writeError = StateError('link dropped');
+    channel.writeError = writeError;
+
+    await expectLater(
+      transport.sendRequest(deviceInfoRequest()),
+      throwsA(same(writeError)),
+    );
+
+    channel.writeError = null;
+    final retry = transport.sendRequest(deviceInfoRequest());
+    channel.respond(
+      framesOf(jsonOf('env-resp-device-info-ne101'), messageId: 11),
+    );
+    final response = await retry;
+    expect(response.id, 1);
   });
 
   test('在途 id 重复发送：直接拒绝', () async {
@@ -145,7 +208,9 @@ void main() {
       throwsArgumentError,
       reason: '同 id 在途时不得重复发送',
     );
-    channel.respond(framesOf(jsonOf('env-resp-device-info-ne101'), messageId: 12));
+    channel.respond(
+      framesOf(jsonOf('env-resp-device-info-ne101'), messageId: 12),
+    );
     await first;
   });
 
@@ -155,12 +220,24 @@ void main() {
     channel.negotiateMtu(61);
     await Future<void>.delayed(Duration.zero);
     final future = transport.sendRequest(
-      const ProvRequest(id: 2, opName: 'communication.capabilities.get', data: {}),
+      const ProvRequest(
+        id: 2,
+        opName: 'communication.capabilities.get',
+        data: {},
+      ),
     );
     // MTU 61：payload_max=53，56B 请求切 2 片（53+3），帧总长 5+53=58 ≤ MTU-3；
     // 829B 能力响应仍需 16 片，重组不受切片变大的影响。
-    final respFrames = framesOf(jsonOf('env-resp-capabilities-ne301'), mtu: 61, messageId: 20);
-    expect(respFrames, hasLength(16), reason: '829B 响应在 payload_max 53 下切 16 片');
+    final respFrames = framesOf(
+      jsonOf('env-resp-capabilities-ne301'),
+      mtu: 61,
+      messageId: 20,
+    );
+    expect(
+      respFrames,
+      hasLength(16),
+      reason: '829B 响应在 payload_max 53 下切 16 片',
+    );
     expect(respFrames.first.length, 58, reason: '首帧 5+53=58 不超 MTU-3');
     channel.respond(respFrames);
     await future;
@@ -168,7 +245,11 @@ void main() {
       mtu: 61,
       kind: ProvPacketKind.request,
       messageId: 0,
-      jsonText: encodeRequest(id: 2, op: 'communication.capabilities.get', data: {}),
+      jsonText: encodeRequest(
+        id: 2,
+        op: 'communication.capabilities.get',
+        data: {},
+      ),
     );
     expect(channel.writes, expectedFrames, reason: '请求帧与切片器在 MTU 61 下逐字节一致');
     expect(channel.writes.first.length, 58, reason: '请求首帧 5+53');
@@ -180,6 +261,7 @@ class FakeChannel implements CtGattChannel {
   final List<List<int>> writes = [];
   final _d2c = StreamController<List<int>>.broadcast();
   final _mtuChanges = StreamController<int>.broadcast();
+  Object? writeError;
 
   int _mtu = 23;
   @override
@@ -193,6 +275,8 @@ class FakeChannel implements CtGattChannel {
 
   @override
   Future<void> writeC2d(List<int> frame) async {
+    final error = writeError;
+    if (error != null) throw error;
     writes.add(List<int>.of(frame));
   }
 
