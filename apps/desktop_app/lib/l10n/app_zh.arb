@@ -73,6 +73,7 @@
   "capsNetworkNever": "从未配置",
   "capsSectionConfigurable": "可配置",
   "capsSectionReadonly": "只读",
+  "capsPoePower": "PoE 供电",
   "capsSectionScannable": "支持扫描",
   "capsFieldsCount": "{count} 个字段",
   "@capsFieldsCount": { "placeholders": { "count": { "type": "int" } } },

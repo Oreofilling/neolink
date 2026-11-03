@@ -146,6 +146,26 @@ void main() {
     expect(controller.phase, SessionPhase.scanEmpty);
   });
 
+  testWidgets('M3 PoE: ethernet readonly row carries the PoE badge', (tester) async {
+    final source = FakeSource();
+    final device = FakeCtDevice(capsShape: 'ne301', power: const ['poe']);
+    final controller = wiredController(source, device);
+    addTearDown(source.close);
+    addTearDown(device.close);
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(NeoLinkApp(controller: controller));
+    await settle(tester);
+    source.emit(sampleCandidate());
+    await settle(tester);
+    await tester.tap(find.text('连接'));
+    await settle(tester);
+    expect(controller.phase, SessionPhase.choosingSections);
+    // §13.3 Ethernet: readonly row plus the PoE power attribute badge.
+    expect(find.text('ethernet'), findsOneWidget);
+    expect(find.text('PoE 供电'), findsOneWidget);
+  });
+
   testWidgets('M3 full flow: pick sections -> prefilled form -> deliver -> result -> back to scan',
       (tester) async {
     final source = FakeSource();

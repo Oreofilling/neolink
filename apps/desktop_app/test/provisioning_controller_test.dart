@@ -421,5 +421,127 @@ void main() {
       expect(controller.phase, SessionPhase.completed);
       expect(device.lastConfigSet!.keys.toSet(), {'comm', 'webhook'});
     });
+
+    // ---- §13.3 / §13.4 acceptance cases ----
+
+    test('§13.3 Wi-Fi: open network omits the password field', () async {
+      final source = FakeSource();
+      final device = FakeCtDevice();
+      final controller = await connectedToCaps(source, device);
+
+      await controller.beginEditing({'wifi'});
+      await until(() => controller.prefillDone, 'prefill did not finish');
+      // A hidden SSID is typed manually through the same field.
+      controller.updateDraft(const WifiSection(ssid: 'Cafe-Guest', password: ''));
+      await controller.submit();
+
+      expect(controller.phase, SessionPhase.completed);
+      // Empty password = open network: the field never reaches the wire.
+      expect(device.lastConfigSet!['wifi'], {'ssid': 'Cafe-Guest'});
+    });
+
+    test('§13.3 CAT1: manual apn/pin/auth submit; malformed pin blocked',
+        () async {
+      final source = FakeSource();
+      final device = FakeCtDevice(); // ne101 cellular: apn/username/password/pin/auth
+      final controller = await connectedToCaps(source, device);
+
+      await controller.beginEditing({'cellular'});
+      await until(() => controller.prefillDone, 'prefill did not finish');
+      controller.updateDraft(
+        const CellularSection(apn: 'cmiot.iot', pin: '12', auth: 'pap'),
+      );
+      await controller.submit();
+      expect(controller.phase, SessionPhase.editingConfig);
+      expect(
+        controller.sectionProblems['cellular'],
+        contains(
+          predicate<FieldProblem>(
+            (problem) =>
+                problem.field == 'pin' &&
+                problem.code == FieldProblemCode.invalidFormat,
+          ),
+        ),
+      );
+      expect(device.lastConfigSet, isNull);
+
+      controller.updateDraft(
+        const CellularSection(apn: 'cmiot.iot', pin: '1234', auth: 'pap'),
+      );
+      await controller.submit();
+      expect(controller.phase, SessionPhase.completed);
+      expect(device.lastConfigSet!['cellular'], {
+        'apn': 'cmiot.iot',
+        'pin': '1234',
+        'auth': 'pap',
+      });
+    });
+
+    test('§13.3 CAT1: preconfigured SIM (fields=[]) submits an empty section',
+        () async {
+      final source = FakeSource();
+      final device = FakeCtDevice(capsShape: 'halow');
+      final controller = await connectedToCaps(source, device);
+
+      await controller.beginEditing({'cellular'});
+      await until(() => controller.prefillDone, 'prefill did not finish');
+      await controller.submit();
+
+      expect(controller.phase, SessionPhase.completed);
+      // {} confirms "use SIM defaults" without any field on the wire.
+      expect(device.lastConfigSet!['cellular'], isEmpty);
+    });
+
+    test('§13.3 HaLow: scan pick fills ssid and country', () async {
+      final source = FakeSource();
+      final device = FakeCtDevice(capsShape: 'halow');
+      final controller = await connectedToCaps(source, device);
+
+      await controller.beginEditing({'halow'});
+      await until(() => controller.prefillDone, 'prefill did not finish');
+      await controller.scanNetworks('halow');
+      controller.pickNetwork(
+        controller.scanItems.firstWhere(
+          (network) => network.networkId == 'CT-HaLow',
+        ),
+      );
+      final draft = controller.drafts['halow'] as HalowSection;
+      expect(draft.ssid, 'CT-HaLow');
+      expect(draft.country, 'CN'); // extension field applied (declared)
+
+      await controller.submit();
+      expect(controller.phase, SessionPhase.completed);
+      expect(device.lastConfigSet!['halow'], {
+        'ssid': 'CT-HaLow',
+        'country': 'CN',
+      });
+    });
+
+    test('§13.4 service-only submit works without an active network', () async {
+      final source = FakeSource();
+      final device = FakeCtDevice();
+      final controller = await connectedToCaps(source, device);
+
+      expect(controller.capabilities!.currentNetwork, isNull);
+      await controller.beginEditing({'mqtt'});
+      await until(() => controller.prefillDone, 'prefill did not finish');
+      controller.updateDraft(
+        const MqttSection(enable: true, host: 'mqtt.example.com', port: 1883),
+      );
+      await controller.submit();
+
+      expect(controller.phase, SessionPhase.completed);
+      expect(device.lastConfigSet!.keys, ['mqtt']);
+    });
+
+    test('§13.4 undeclared service section is excluded from the round',
+        () async {
+      final source = FakeSource();
+      final device = FakeCtDevice(); // ne101 declares no webhook section
+      final controller = await connectedToCaps(source, device);
+
+      await controller.beginEditing({'wifi', 'webhook'});
+      expect(controller.editingSections, ['wifi']);
+    });
   });
 }

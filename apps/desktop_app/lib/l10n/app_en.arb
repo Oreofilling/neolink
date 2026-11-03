@@ -73,6 +73,7 @@
   "capsNetworkNever": "Never configured",
   "capsSectionConfigurable": "Configurable",
   "capsSectionReadonly": "Read-only",
+  "capsPoePower": "PoE powered",
   "capsSectionScannable": "Scannable",
   "capsFieldsCount": "{count} fields",
   "@capsFieldsCount": { "placeholders": { "count": { "type": "int" } } },

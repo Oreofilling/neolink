@@ -48,6 +48,7 @@ final class FakeCtDevice implements CtGattChannel {
     this.capsShape = 'ne101',
     this.rejectConfigSet,
     this.supportsConfigGet = true,
+    this.power = const ['battery'],
   });
 
   @override
@@ -56,9 +57,10 @@ final class FakeCtDevice implements CtGattChannel {
   /// device.info.get always answers an error (capability failure path).
   final bool rejectDeviceInfo;
 
-  /// Capability shape: 'ne101' (wifi/cellular/mqtt) or 'ne301'
-  /// (comm + wifi incl. bssid + cellular incl. roaming + readonly ethernet +
-  /// mqtt + webhook incl. secret).
+  /// Capability shape: 'ne101' (wifi/cellular/mqtt), 'ne301' (comm + wifi
+  /// incl. bssid + cellular incl. roaming + readonly ethernet + mqtt +
+  /// webhook incl. secret), or 'halow' (comm + scannable halow with country +
+  /// fieldless cellular, i.e. a preconfigured SIM).
   final String capsShape;
 
   /// config.set answers this error code instead of storing (e.g.
@@ -67,6 +69,9 @@ final class FakeCtDevice implements CtGattChannel {
 
   /// false -> config.get answers UNSUPPORTED_OPERATION.
   final bool supportsConfigGet;
+
+  /// device.info power sources; containing 'poe' drives the ethernet badge.
+  final List<String> power;
 
   /// Last config.set data received (payload arrives intact).
   Map<String, Object?>? lastConfigSet;
@@ -123,7 +128,7 @@ final class FakeCtDevice implements CtGattChannel {
             'serial_number': 'NL24Q4001234',
             'model': 'NE101',
             'firmware': 'v0.3.2-dev',
-            'power': ['battery'],
+            'power': power,
             'protocol_version': 1,
           },
         );
@@ -131,8 +136,11 @@ final class FakeCtDevice implements CtGattChannel {
     } else if (envelope.opName ==
         ProvOp.communicationCapabilitiesGet.wireName) {
       // §8 shapes: ne101 has no comm section, wifi without bssid, cellular
-      // without roaming; ne301 carries both plus a readonly ethernet node.
+      // without roaming; ne301 carries both plus a readonly ethernet node;
+      // halow carries a scannable halow node (country field) and a fieldless
+      // cellular node (preconfigured SIM).
       final ne301 = capsShape == 'ne301';
+      final halow = capsShape == 'halow';
       final sections = ne301
           ? <Map<String, Object?>>[
               {
@@ -186,6 +194,30 @@ final class FakeCtDevice implements CtGattChannel {
                 'configurable': true,
                 'scannable': false,
                 'fields': ['enable', 'url', 'secret', 'header'],
+              },
+            ]
+          : halow
+          ? <Map<String, Object?>>[
+              {
+                'name': 'comm',
+                'kind': 'selector',
+                'configurable': true,
+                'scannable': false,
+                'fields': ['type'],
+              },
+              {
+                'name': 'halow',
+                'kind': 'network',
+                'configurable': true,
+                'scannable': true,
+                'fields': ['ssid', 'password', 'country'],
+              },
+              {
+                'name': 'cellular',
+                'kind': 'network',
+                'configurable': true,
+                'scannable': false,
+                'fields': <String>[],
               },
             ]
           : <Map<String, Object?>>[

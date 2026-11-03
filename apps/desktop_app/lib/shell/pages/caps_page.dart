@@ -72,7 +72,12 @@ class _CapsPageState extends State<CapsPage> {
                   _currentNetworkRow(c, l, caps),
                   const SizedBox(height: 14),
                   for (final section in caps.sections)
-                    _sectionRow(c, l, section),
+                    _sectionRow(
+                      c,
+                      l,
+                      section,
+                      poePower: info?.power.contains('poe') ?? false,
+                    ),
                   const SizedBox(height: 16),
                   NLButton(
                     label: l.capsBegin,
@@ -150,7 +155,12 @@ class _CapsPageState extends State<CapsPage> {
     );
   }
 
-  Widget _sectionRow(NLColors c, AppLocalizations l, ConfigSection section) {
+  Widget _sectionRow(
+    NLColors c,
+    AppLocalizations l,
+    ConfigSection section, {
+    bool poePower = false,
+  }) {
     final checked = _selected.contains(section.name);
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
@@ -195,6 +205,15 @@ class _CapsPageState extends State<CapsPage> {
                               ? NLBadgeVariant.success
                               : NLBadgeVariant.muted,
                         ),
+                        // PoE is a power attribute of device.info (§13.3):
+                        // shown on the ethernet row when power contains poe.
+                        if (poePower && section.name == 'ethernet') ...[
+                          const SizedBox(width: 8),
+                          NLBadge(
+                            label: l.capsPoePower,
+                            variant: NLBadgeVariant.info,
+                          ),
+                        ],
                         if (section.scannable) ...[
                           const SizedBox(width: 8),
                           NLBadge(
