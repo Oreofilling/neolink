@@ -108,7 +108,10 @@ void main() {
     await settle(tester);
     expect(controller.phase, SessionPhase.connectionError);
     expect(find.text('连接未完成'), findsOneWidget);
-    expect(find.text('gatt link gone'), findsOneWidget); // 诊断串原样展示
+    expect(
+      find.textContaining('gatt link gone'),
+      findsOneWidget,
+    ); // 诊断串原样展示（含异常前缀）
 
     await tester.tap(find.text('返回设备列表'));
     await settle(tester);

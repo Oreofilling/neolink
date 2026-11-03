@@ -4,18 +4,17 @@ library;
 
 import 'dart:async';
 
-import 'package:ble_adapter/ble_adapter.dart';
 import 'package:ble_universal/ble_universal.dart';
 import 'package:ct_prov_core/ct_prov_core.dart';
-import 'package:discovery_domain/discovery_domain.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:desktop_app/services/environment_probe.dart';
 
-/// 可手动喂候选的假发现源，记录启停次数。
+/// 可手动喂候选的假发现源，记录启停次数（广播流：重扫会再次订阅，
+/// 且无监听者时 close 也能完成，与真实源行为一致）。
 final class FakeSource implements DiscoverySource {
   final StreamController<DiscoveryCandidate> _controller =
-      StreamController<DiscoveryCandidate>();
+      StreamController<DiscoveryCandidate>.broadcast();
 
   int startCount = 0;
   int stopCount = 0;

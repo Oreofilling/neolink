@@ -8,9 +8,7 @@ library;
 
 import 'dart:async';
 
-import 'package:ble_adapter/ble_adapter.dart';
 import 'package:ble_universal/ble_universal.dart';
-import 'package:discovery_domain/discovery_domain.dart';
 import 'package:flutter/foundation.dart';
 import 'package:provisioning_session/provisioning_session.dart';
 
@@ -238,7 +236,9 @@ class ProvisioningController extends ChangeNotifier {
       _registry.absorb(candidate);
       if (_machine.phase == SessionPhase.scanning) {
         _machine.reportCandidate();
-        _stopScanTasks();
+        // 出候选即停源（含扫描定时器）：用户挑选期间射频静默；选定
+        // 候选时机器钩子会再停一次，停源幂等无副作用。
+        unawaited(_stopSources());
       }
       notifyListeners();
     });
@@ -246,7 +246,8 @@ class ProvisioningController extends ChangeNotifier {
     _scanTimer = Timer(scanTimeout, () {
       if (_machine.phase == SessionPhase.scanning) {
         _machine.reportScanTimeout();
-        _stopScanTasks();
+        // 空结果同样回收底层资源（候选超时刷新验收点）。
+        unawaited(_stopSources());
         notifyListeners();
       }
     });
