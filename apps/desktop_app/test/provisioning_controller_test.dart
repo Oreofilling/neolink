@@ -77,6 +77,8 @@ void main() {
     addTearDown(source.close);
 
     await controller.runSelfCheck();
+    // 相位事件异步投递：订阅挂上（源已启动）再喂候选，否则广播流丢弃。
+    await until(() => source.startCount == 1, 'selfcheck did not start scan');
     source.emit(sampleCandidate());
     await until(
       () => controller.phase == SessionPhase.resultsAvailable,
@@ -101,6 +103,8 @@ void main() {
     addTearDown(device.close);
 
     await controller.runSelfCheck();
+    // 相位事件异步投递：订阅挂上（源已启动）再喂候选，否则广播流丢弃。
+    await until(() => source.startCount == 1, 'selfcheck did not start scan');
     source.emit(sampleCandidate());
     await until(
       () => controller.phase == SessionPhase.resultsAvailable,
@@ -143,6 +147,8 @@ void main() {
     addTearDown(source.close);
 
     await controller.runSelfCheck();
+    // 相位事件异步投递：订阅挂上（源已启动）再喂候选，否则广播流丢弃。
+    await until(() => source.startCount == 1, 'selfcheck did not start scan');
     source.emit(sampleCandidate());
     await until(
       () => controller.phase == SessionPhase.resultsAvailable,

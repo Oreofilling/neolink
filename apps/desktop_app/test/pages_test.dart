@@ -122,25 +122,22 @@ void main() {
   testWidgets('扫描超时进入空态页并可重扫', (tester) async {
     final source = FakeSource();
     final device = FakeCtDevice();
-    final controller = wiredController(
-      source,
-      device,
-      scanTimeout: const Duration(milliseconds: 60),
-    );
+    // 用默认 20s 扫描窗：泵快进触发超时；重扫后小步泵进，避免窗口再烧穿。
+    final controller = wiredController(source, device);
     addTearDown(source.close);
     addTearDown(device.close);
     addTearDown(controller.dispose);
 
     await tester.pumpWidget(NeoLinkApp(controller: controller));
     await settle(tester); // 进入扫描
-    await tester.pump(const Duration(milliseconds: 100)); // 超时触发
+    await tester.pump(const Duration(seconds: 21)); // 超时触发
 
     expect(controller.phase, SessionPhase.scanEmpty);
     expect(find.text('未发现设备'), findsWidgets); // 导航 + 页标题
     expect(find.textContaining('附近没有发现可配置设备'), findsOneWidget);
 
     await tester.tap(find.text('重新扫描'));
-    await settle(tester);
+    await tester.pump(const Duration(milliseconds: 16)); // 微任务收敛即扫描中
     expect(controller.phase, SessionPhase.scanning);
   });
 }
