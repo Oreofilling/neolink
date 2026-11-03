@@ -24,7 +24,7 @@ using winrt::Windows::Devices::Enumeration::DevicePairingKinds;
 using winrt::Windows::Devices::Enumeration::DevicePairingProtectionLevel;
 using winrt::Windows::Devices::Enumeration::DevicePairingResultStatus;
 
-constexpr char kPairingChannel[] = "ct_prov_poc/windows_pairing";
+constexpr char kPairingChannel[] = "neolink/windows_pairing";
 
 std::string DiagnosticLogPath() {
   char temporary_directory[MAX_PATH + 1] = {};

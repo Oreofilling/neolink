@@ -10,13 +10,8 @@ import 'dart:async';
 import 'package:ble_universal/ble_universal.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:provisioning_session/provisioning_session.dart';
 import 'package:universal_ble/universal_ble.dart';
-
-const MethodChannel _windowsPairingChannel = MethodChannel(
-  'ct_prov_poc/windows_pairing',
-);
 
 void main(List<String> arguments) {
   runApp(CtProvPocApp(autoRun: arguments.contains('--auto')));
@@ -101,7 +96,7 @@ class _PocHomePageState extends State<PocHomePage> {
   void _appendLog(String line) {
     if (!mounted) return;
     if (!kIsWeb && defaultTargetPlatform == TargetPlatform.windows) {
-      unawaited(_windowsPairingChannel.invokeMethod<void>('log', line));
+      unawaited(kWindowsPairingChannel.invokeMethod<void>('log', line));
     }
     setState(() {
       _log.insert(0, line);
@@ -171,17 +166,6 @@ class _PocHomePageState extends State<PocHomePage> {
     _appendLog(reason);
   }
 
-  Future<void> _pairDevice(String deviceId) async {
-    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.windows) {
-      final status = await _windowsPairingChannel
-          .invokeMethod<String>('pair', deviceId)
-          .timeout(const Duration(seconds: 15));
-      _appendLog('pre-open: Windows PairAsync status=$status');
-      return;
-    }
-    await UniversalBle.pair(deviceId, timeout: const Duration(seconds: 15));
-  }
-
   /// 对选中设备跑完一次 F1 往返：连接序列 → device.info.get →
   /// session.close → 断链。任何一步异常都记日志并确保链路回收。
   Future<void> _runRoundtrip(String deviceId) async {
@@ -195,16 +179,11 @@ class _PocHomePageState extends State<PocHomePage> {
     _appendLog('connect ${record?.info.displayName ?? deviceId}');
     UniversalCtGattChannel? channel;
     try {
-      // 先独立完成系统 bonding，再建立本应用的 GATT 会话。Windows 10
-      // 绕开 universal_ble 的 ProvidePin/自动保护等级分支，明确使用
-      // ConfirmOnly + Encryption，并保留 DevicePairingResultStatus。
-      final paired = await UniversalBle.isPaired(deviceId);
-      _appendLog('pre-open: isPaired=$paired');
-      if (paired != true) {
-        _appendLog('pre-open: system pairing requested');
-        await _pairDevice(deviceId);
-        _appendLog('pre-open: system pairing complete');
-      }
+      // 先独立完成系统 bonding，再建立本应用的 GATT 会话（§4.4 桌面流）。
+      // Windows 10 绕开 universal_ble 的 ProvidePin/自动保护等级分支，走
+      // runner 原生通道的 ConfirmOnly + Encryption，并保留完整的
+      // DevicePairingResultStatus（编排细节已下沉到 establishSystemBond）。
+      await establishSystemBond(deviceId, onStep: _appendLog);
 
       // onStep：连接序列分步日志（连接/枚举/META/订阅/MTU/安全策略），
       // 异常前最后一条即失败点。

@@ -1,6 +1,7 @@
 /// CT-Prov GATT 通道端口：传输层依赖的最小原语集。
-/// 具体实现由 universal_ble 适配器提供（真机 PoC 时冻结接口；
-/// PoC 需验证加密特征访问、系统配对与 bonding 行为（§4.4）。
+/// 具体实现由 universal_ble 适配器提供；接口于 2026-11-03 真机 PoC
+/// 通过后冻结（NE101 + Windows 往返 3 连，已验证加密特征访问、系统
+/// 配对与 bonding 行为（§4.4））。
 library;
 
 /// CT-Prov Service UUID。
