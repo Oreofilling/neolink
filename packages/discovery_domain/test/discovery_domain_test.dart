@@ -102,13 +102,13 @@ void main() {
 
     test('updates 流发出每次合并后的候选', () async {
       final registry = DiscoveryRegistry();
-      final emitted = <DiscoveryCandidate>[];
-      final sub = registry.updates.listen(emitted.add);
+      // 先订阅再驱动：广播流事件异步投递，事后 listen 会漏事件。
+      final emittedFuture = registry.updates.take(2).toList();
       registry.absorb(bleCandidate('A1B2C3'));
       registry.absorb(
         bleCandidate('A1B2C3', lastSeen: t0.add(const Duration(seconds: 2))),
       );
-      await sub.cancel();
+      final emitted = await emittedFuture;
 
       expect(emitted, hasLength(2));
       expect(emitted.last.lastSeen, t0.add(const Duration(seconds: 2)));
