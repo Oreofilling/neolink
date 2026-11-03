@@ -3,7 +3,7 @@
 // 候选生命周期随扫描任务。
 library;
 
-import 'package:ble_adapter/ble_adapter.dart';
+import 'package:ble_universal/ble_universal.dart';
 import 'package:communication_domain/communication_domain.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provisioning_session/provisioning_session.dart';
@@ -24,6 +24,8 @@ ProvisioningController makeController(
   establishPairing: (_) async {},
   connectChannel: connect ?? ((_, __) async => FakeCtDevice()),
   scanTimeout: scanTimeout,
+  // 旧用例语义是「自检过即进扫描」：零等待跳过倒计时。
+  selfCheckHold: Duration.zero,
 );
 
 /// Drives selfcheck → candidate → connect up to choosingSections; registers
@@ -200,6 +202,110 @@ void main() {
       expect(source.startCount, 0);
     },
   );
+
+  group('M3b selfcheck hold / recheck (A1/A2/A3)', () {
+    test('countdown holds after pass; stay cancels; scan-now enters scanning',
+        () async {
+      final source = FakeSource();
+      final controller = ProvisioningController(
+        environmentProbe: readyProbe(),
+        discoverySource: source,
+        establishPairing: (_) async {},
+        connectChannel: (_, __) async => FakeCtDevice(),
+        selfCheckHold: const Duration(seconds: 1),
+      );
+      addTearDown(controller.dispose);
+      addTearDown(source.close);
+
+      await controller.runSelfCheck();
+      expect(controller.phase, SessionPhase.selfChecking);
+      expect(controller.selfCheckCountdown, 1);
+
+      controller.stayOnSelfCheck();
+      expect(controller.selfCheckCountdown, isNull);
+      expect(controller.selfCheckHeld, isTrue);
+      // 停留后倒计时不点火：真实时钟等过 1s 窗口仍留在自检。
+      await Future<void>.delayed(const Duration(milliseconds: 1300));
+      expect(controller.phase, SessionPhase.selfChecking);
+
+      controller.startScanNow();
+      expect(controller.phase, SessionPhase.scanning);
+    });
+
+    test('countdown expiry auto-enters scanning', () async {
+      final source = FakeSource();
+      final controller = ProvisioningController(
+        environmentProbe: readyProbe(),
+        discoverySource: source,
+        establishPairing: (_) async {},
+        connectChannel: (_, __) async => FakeCtDevice(),
+        // 亚秒 hold：inSeconds=0，首个 1s tick 即进入扫描。
+        selfCheckHold: const Duration(milliseconds: 300),
+      );
+      addTearDown(controller.dispose);
+      addTearDown(source.close);
+
+      await controller.runSelfCheck();
+      expect(controller.selfCheckCountdown, 0);
+      await until(
+        () => controller.phase == SessionPhase.scanning,
+        'countdown expiry did not enter scanning',
+      );
+    });
+
+    test('recheck from a later phase refreshes the report only (A2)', () async {
+      final source = FakeSource();
+      final controller = makeController(source);
+      addTearDown(controller.dispose);
+      addTearDown(source.close);
+
+      await controller.runSelfCheck();
+      await until(() => source.startCount == 1, 'selfcheck did not start scan');
+      source.emit(sampleCandidate());
+      await until(
+        () => controller.phase == SessionPhase.resultsAvailable,
+        'candidate did not move phase',
+      );
+
+      // 中途回访自检页点「重新检测」：报告刷新，相位与扫描状态不动。
+      final before = controller.environmentReport;
+      await controller.runSelfCheck();
+      expect(controller.phase, SessionPhase.resultsAvailable);
+      expect(identical(controller.environmentReport, before), isFalse);
+      expect(source.startCount, 1);
+      expect(source.stopCount, 1); // 停源状态未被扰动
+    });
+
+    test('blocked selfcheck can be re-run after the environment is fixed (A3)',
+        () async {
+      final source = FakeSource();
+      // 双通道都关：只关蓝牙时 Wi-Fi 网卡仍会放行（canProceed 单通道即可）。
+      var ready = false;
+      final probe = DesktopEnvironmentProbe(
+        probeBle: () async => CtEnvironmentReport(
+          readiness: ready ? CtBleReadiness.ready : CtBleReadiness.poweredOff,
+          detail: 'fake switchable',
+        ),
+        enumerateAdapters: () async => ready
+            ? '[{"Name":"Wi-Fi","Status":"Up","PhysicalMediaType":"Native 802.11"}]'
+            : null,
+      );
+      final controller = makeController(source, probe: probe);
+      addTearDown(controller.dispose);
+      addTearDown(source.close);
+
+      await controller.runSelfCheck();
+      expect(controller.environmentReport!.canProceed, isFalse);
+      expect(controller.phase, SessionPhase.selfChecking);
+      expect(source.startCount, 0);
+
+      // 修复环境后重新检测：同一次运行内即可放行（不再需要重启应用）。
+      ready = true;
+      await controller.runSelfCheck();
+      expect(controller.phase, SessionPhase.scanning);
+      await until(() => source.startCount == 1, 'recheck did not start scan');
+    });
+  });
 
   group('M3 form / delivery / scan', () {
     test('beginEditing prefills from config.get (masked secrets skipped)',

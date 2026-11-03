@@ -31,6 +31,7 @@ class ProvisioningController extends ChangeNotifier {
     connectChannel,
     this.scanTimeout = const Duration(seconds: 20),
     this.ttl = const Duration(seconds: 12),
+    this.selfCheckHold = const Duration(seconds: 5),
   }) : _probe = environmentProbe ?? DesktopEnvironmentProbe(),
        _source = discoverySource ?? BleDiscoverySource(),
        _pair =
@@ -55,6 +56,9 @@ class ProvisioningController extends ChangeNotifier {
 
   /// 候选淘汰窗口（与扫描任务同生命周期，不落盘）。
   final Duration ttl;
+
+  /// 自检通过后的自动进入扫描倒计时（0 = 立即进入，测试用）。
+  final Duration selfCheckHold;
 
   final DesktopEnvironmentProbe _probe;
   final DiscoverySource _source;
@@ -83,6 +87,14 @@ class ProvisioningController extends ChangeNotifier {
   /// 自检是否正在执行（页面骨架态）。
   bool get selfChecking => _selfChecking;
   bool _selfChecking = false;
+
+  /// 自检通过后的倒计时剩余秒数（null = 未在倒计时：未开始/已停留/已进入）。
+  int? selfCheckCountdown;
+
+  /// 用户已选择停留在自检页（倒计时被取消，等待「立即扫描」）。
+  bool get selfCheckHeld => _selfCheckHeld;
+  bool _selfCheckHeld = false;
+  Timer? _selfCheckTimer;
 
   /// 最近一次问题（连接/能力/下发失败与协议错误）。
   SessionProblem? lastProblem;
@@ -142,21 +154,74 @@ class ProvisioningController extends ChangeNotifier {
     _ => false,
   };
 
-  /// 环境自检：探测三路通道 → 机器放行或阻塞（阻塞时停留自检页）。
+  /// 环境自检（A2 修复：任意相位都可重新检测）。仍在自检相位时按结果驱动
+  /// 状态机——通过则倒计时进入扫描（可停留），阻塞则停留本页；已离开自检
+  /// 相位（中途回访）时只刷新报告，不迁移相位。
   Future<void> runSelfCheck() async {
-    if (_machine.phase != SessionPhase.selfChecking || _selfChecking) return;
+    if (_selfChecking) return;
     _selfChecking = true;
+    _cancelSelfCheckHold();
     notifyListeners();
     environmentReport = await _probe.probe();
     _selfChecking = false;
-    _machine.completeSelfCheck(
-      canProceed: environmentReport!.canProceed,
-      detail: environmentReport!.channels
-          .where((entry) => entry.capability != ChannelCapability.available)
-          .map((entry) => '${entry.channel.name}: ${entry.reason}')
-          .join(', '),
-    );
+    final report = environmentReport!;
+    if (_machine.phase != SessionPhase.selfChecking) {
+      notifyListeners();
+      return;
+    }
+    if (!report.canProceed) {
+      _selfCheckHeld = false;
+      _machine.completeSelfCheck(
+        canProceed: false,
+        detail: report.channels
+            .where((entry) => entry.capability != ChannelCapability.available)
+            .map((entry) => '${entry.channel.name}: ${entry.reason}')
+            .join(', '),
+      );
+      notifyListeners();
+      return;
+    }
+    if (selfCheckHold == Duration.zero) {
+      _selfCheckHeld = false;
+      _machine.completeSelfCheck(canProceed: true);
+      notifyListeners();
+      return;
+    }
+    selfCheckCountdown = selfCheckHold.inSeconds;
+    _selfCheckHeld = false;
     notifyListeners();
+    _selfCheckTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      final left = (selfCheckCountdown ?? 0) - 1;
+      if (left <= 0) {
+        startScanNow();
+      } else {
+        selfCheckCountdown = left;
+        notifyListeners();
+      }
+    });
+  }
+
+  /// 停留自检页：取消倒计时（A1：留时间检查环境与通道明细）。
+  void stayOnSelfCheck() {
+    if (selfCheckCountdown == null) return;
+    _cancelSelfCheckHold();
+    _selfCheckHeld = true;
+    notifyListeners();
+  }
+
+  /// 立即（或倒计时到点）进入扫描。
+  void startScanNow() {
+    if (_machine.phase != SessionPhase.selfChecking) return;
+    _cancelSelfCheckHold();
+    _selfCheckHeld = false;
+    _machine.completeSelfCheck(canProceed: true);
+    notifyListeners();
+  }
+
+  void _cancelSelfCheckHold() {
+    _selfCheckTimer?.cancel();
+    _selfCheckTimer = null;
+    selfCheckCountdown = null;
   }
 
   /// 从候选列表选定设备：进入连接链（配对 → 通道 → 会话 → 读能力）。
@@ -543,7 +608,34 @@ class ProvisioningController extends ChangeNotifier {
 
   void _onPhaseChanged(SessionPhase phase) {
     if (phase == SessionPhase.scanning) _startScan();
+    _syncSweepTimer(phase);
     notifyListeners();
+  }
+
+  /// 候选清扫计时器随相位：扫描/结果期保持运转（结果页条目按 lastSeen
+  /// 打时效标注并持续刷新显示），其余相位停止。扫描相位仍执行超时淘汰
+  /// （设备仍在广播会重新入表）；结果相位是停源后的冻结快照，只重绘
+  /// 不移除（C5：断电设备显示「信号消失」而非凭空消失）。
+  void _syncSweepTimer(SessionPhase phase) {
+    final active =
+        phase == SessionPhase.scanning || phase == SessionPhase.resultsAvailable;
+    if (!active) {
+      _sweepTimer?.cancel();
+      _sweepTimer = null;
+      return;
+    }
+    if (_sweepTimer != null) return;
+    _sweepTimer = Timer.periodic(const Duration(seconds: 3), (_) {
+      if (_machine.phase == SessionPhase.scanning) {
+        // 候选超时刷新：超过 ttl 未再见到即移除（设备仍在广播会重新入表）。
+        if (_registry.sweepExpired(DateTime.now(), ttl: ttl).isNotEmpty) {
+          notifyListeners();
+        }
+      } else if (_machine.phase == SessionPhase.resultsAvailable) {
+        // 冻结快照的时效标注需要周期重绘（时钟推进，条目保留）。
+        notifyListeners();
+      }
+    });
   }
 
   /// 进入扫描相位：新任务用新注册表；首个候选即离开扫描相位并停源。
@@ -566,12 +658,6 @@ class ProvisioningController extends ChangeNotifier {
         _machine.reportScanTimeout();
         // 空结果同样回收底层资源（候选超时刷新验收点）。
         unawaited(_stopSources());
-        notifyListeners();
-      }
-    });
-    _sweepTimer = Timer.periodic(const Duration(seconds: 3), (_) {
-      // 候选超时刷新：超过 ttl 未再见到即移除（设备仍在广播会重新入表）。
-      if (_registry.sweepExpired(DateTime.now(), ttl: ttl).isNotEmpty) {
         notifyListeners();
       }
     });
@@ -608,8 +694,6 @@ class ProvisioningController extends ChangeNotifier {
     _candidateSub = null;
     _scanTimer?.cancel();
     _scanTimer = null;
-    _sweepTimer?.cancel();
-    _sweepTimer = null;
   }
 
   /// 断开链路并释放会话资源（幂等，供机器错误/清理路径调用）。
@@ -627,6 +711,9 @@ class ProvisioningController extends ChangeNotifier {
   @override
   void dispose() {
     _stopScanTasks();
+    _sweepTimer?.cancel();
+    _sweepTimer = null;
+    _cancelSelfCheckHold();
     _phaseSub.cancel();
     _problemSub.cancel();
     unawaited(_releaseLink());

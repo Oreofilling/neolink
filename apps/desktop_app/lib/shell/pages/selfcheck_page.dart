@@ -1,6 +1,7 @@
 import 'package:discovery_domain/discovery_domain.dart';
 import 'package:flutter/material.dart';
 import 'package:neolink_ui/neolink_ui.dart';
+import 'package:provisioning_session/provisioning_session.dart';
 
 import '../../l10n/app_localizations.dart';
 import '../../l10n/channel_labels.dart';
@@ -9,6 +10,9 @@ import '../../provisioning/provisioning_controller.dart';
 /// 环境自检页（M2-4）：进入即自动执行，三路通道逐行给出可用性结论；
 /// 「AP 枚举受限」呈现为能力限制说明而非空列表；全部不可用时可修复
 /// 后重新检测（机器停留自检相位）。
+///
+/// M3b：通过后不再立刻跳扫描——倒计时 N 秒自动进入，期间可「停留本页」
+/// 检查通道明细或「立即扫描」（A1）；重新检测在任意相位都可点（A2）。
 class SelfcheckPage extends StatefulWidget {
   const SelfcheckPage({super.key, required this.controller});
 
@@ -33,12 +37,27 @@ class _SelfcheckPageState extends State<SelfcheckPage> {
     final c = context.nl;
     final l = AppLocalizations.of(context)!;
     final controller = widget.controller;
-    final report = controller.environmentReport;
 
     return ListenableBuilder(
       listenable: controller,
       builder: (context, _) {
+        // report 必须在 builder 内读取：壳只在切页时重建本页组件，
+        // 自检相位内的通知只走 ListenableBuilder，外层捕获会停留在 null。
+        final report = controller.environmentReport;
         final running = controller.selfChecking && report == null;
+        final counting = controller.selfCheckCountdown;
+        final held = controller.selfCheckHeld;
+        // 自检相位之外回访本页：只读报告，不再声明「自动进入扫描」。
+        final idle = controller.phase != SessionPhase.selfChecking;
+        final status = report == null || running
+            ? l.selfcheckRunning
+            : idle
+            ? (report.canProceed ? l.selfcheckReadyIdle : l.selfcheckBlocked)
+            : counting != null
+            ? l.selfcheckCountdown(counting)
+            : held
+            ? l.selfcheckHeld
+            : (report.canProceed ? l.selfcheckReady : l.selfcheckBlocked);
         return SingleChildScrollView(
           padding: const EdgeInsets.all(20),
           child: ConstrainedBox(
@@ -54,14 +73,7 @@ class _SelfcheckPageState extends State<SelfcheckPage> {
                   ),
                 ),
                 const SizedBox(height: 6),
-                Text(
-                  report == null || running
-                      ? l.selfcheckRunning
-                      : (report.canProceed
-                            ? l.selfcheckReady
-                            : l.selfcheckBlocked),
-                  style: TextStyle(fontSize: 12, color: c.mutedForeground),
-                ),
+                Text(status, style: TextStyle(fontSize: 12, color: c.mutedForeground)),
                 const SizedBox(height: 16),
                 NLCard(
                   child: Column(
@@ -79,11 +91,37 @@ class _SelfcheckPageState extends State<SelfcheckPage> {
                         for (final entry in report.channels)
                           _channelRow(c, l, entry),
                       const SizedBox(height: 16),
-                      NLButton(
-                        label: l.btnRecheck,
-                        variant: NLButtonVariant.secondary,
-                        size: NLButtonSize.sm,
-                        onPressed: controller.runSelfCheck,
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          NLButton(
+                            label: l.btnRecheck,
+                            variant: NLButtonVariant.secondary,
+                            size: NLButtonSize.sm,
+                            onPressed: controller.runSelfCheck,
+                          ),
+                          // A1: the pass state is readable before the jump —
+                          // stay here, or enter the scan immediately.
+                          if (counting != null) ...[
+                            NLButton(
+                              label: l.btnStay,
+                              variant: NLButtonVariant.secondary,
+                              size: NLButtonSize.sm,
+                              onPressed: controller.stayOnSelfCheck,
+                            ),
+                            NLButton(
+                              label: l.btnScanNow,
+                              size: NLButtonSize.sm,
+                              onPressed: controller.startScanNow,
+                            ),
+                          ] else if (held)
+                            NLButton(
+                              label: l.btnScanNow,
+                              size: NLButtonSize.sm,
+                              onPressed: controller.startScanNow,
+                            ),
+                        ],
                       ),
                     ],
                   ),

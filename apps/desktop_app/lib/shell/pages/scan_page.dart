@@ -123,65 +123,93 @@ class ScanPage extends StatelessWidget {
     DiscoveryCandidate device,
   ) {
     final selectable = device.provisionable && !device.busy;
+    // C5: entries are a frozen snapshot once the source stops; age them
+    // honestly — "seen Ns ago", and a muted "signal lost" style past ttl
+    // (the radio is silent by design, so we mark instead of guessing).
+    final age = DateTime.now().difference(device.lastSeen);
+    final stale = age > controller.ttl;
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
-      child: NLCard(
-        child: Padding(
-          padding: const EdgeInsets.all(14),
-          child: Row(
-            children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Text(
-                        device.modelHint ?? l.scanUnknownModel,
-                        style: const TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w700,
+      child: Opacity(
+        opacity: stale ? 0.62 : 1,
+        child: NLCard(
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Row(
+              children: [
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Text(
+                          device.modelHint ?? l.scanUnknownModel,
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                          ),
                         ),
-                      ),
-                      const SizedBox(width: 8),
-                      if (device.macSuffix != null)
-                        NLBadge(
-                          label: l.scanMacSuffix(device.macSuffix!),
-                          variant: NLBadgeVariant.muted,
-                        ),
-                      const SizedBox(width: 8),
-                      if (device.busy)
-                        NLBadge(
-                          label: l.scanBusy,
-                          variant: NLBadgeVariant.error,
-                        )
-                      else if (!device.provisionable)
-                        NLBadge(
-                          label: l.scanNotProvisionable,
-                          variant: NLBadgeVariant.warning,
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 4),
-                  if (device.signal != null)
-                    Text(
-                      l.scanSignal(device.signal!),
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontFamily: 'JetBrains Mono',
-                        color: c.mutedForeground,
-                      ),
+                        const SizedBox(width: 8),
+                        if (device.macSuffix != null)
+                          NLBadge(
+                            label: l.scanMacSuffix(device.macSuffix!),
+                            variant: NLBadgeVariant.muted,
+                          ),
+                        const SizedBox(width: 8),
+                        if (stale)
+                          NLBadge(
+                            label: l.scanStale,
+                            variant: NLBadgeVariant.warning,
+                          )
+                        else if (device.busy)
+                          NLBadge(
+                            label: l.scanBusy,
+                            variant: NLBadgeVariant.error,
+                          )
+                        else if (!device.provisionable)
+                          NLBadge(
+                            label: l.scanNotProvisionable,
+                            variant: NLBadgeVariant.warning,
+                          ),
+                      ],
                     ),
-                ],
-              ),
-              const Spacer(),
-              NLButton(
-                label: l.scanSelect,
-                size: NLButtonSize.sm,
-                onPressed: selectable
-                    ? () => controller.selectCandidate(device)
-                    : null,
-              ),
-            ],
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        if (device.signal != null)
+                          Text(
+                            l.scanSignal(device.signal!),
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontFamily: 'JetBrains Mono',
+                              color: c.mutedForeground,
+                            ),
+                          ),
+                        if (age.inSeconds >= 3) ...[
+                          const SizedBox(width: 8),
+                          Text(
+                            l.scanLastSeen(age.inSeconds),
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontFamily: 'JetBrains Mono',
+                              color: c.mutedForeground,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ],
+                ),
+                const Spacer(),
+                NLButton(
+                  label: l.scanSelect,
+                  size: NLButtonSize.sm,
+                  onPressed: selectable
+                      ? () => controller.selectCandidate(device)
+                      : null,
+                ),
+              ],
+            ),
           ),
         ),
       ),

@@ -1,13 +1,15 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:desktop_app/app.dart';
 import 'package:desktop_app/provisioning/provisioning_controller.dart';
+import 'package:desktop_app/services/settings_store.dart';
 
 import 'provisioning_fakes.dart';
 
 void main() {
   // 页面含无限循环的骨架屏动画，禁用 pumpAndSettle，一律单帧 pump。
   // 注入阻塞自检的控制器：任何机器上启动页都停在自检，导航行为确定
-  // （不依赖真机蓝牙/网卡探测结果）。
+  // （不依赖真机蓝牙/网卡探测结果）。语言跟随系统：测试显式置中文。
   testWidgets('空壳启动：导航、自检页、主题与中英切换', (tester) async {
     final source = FakeSource();
     final controller = ProvisioningController(
@@ -19,7 +21,10 @@ void main() {
     addTearDown(source.close);
     addTearDown(controller.dispose);
 
-    await tester.pumpWidget(NeoLinkApp(controller: controller));
+    tester.platformDispatcher.localesTestValue = const [Locale('zh')];
+    await tester.pumpWidget(
+      NeoLinkApp(controller: controller, settings: SettingsStore.none()),
+    );
     expect(find.text('NeoLink'), findsOneWidget);
     expect(find.text('环境自检'), findsWidgets);
     await tester.pump(); // 自检完成（阻塞态停留）

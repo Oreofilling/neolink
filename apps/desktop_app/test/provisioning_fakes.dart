@@ -382,12 +382,13 @@ DesktopEnvironmentProbe blockedProbe() => DesktopEnvironmentProbe(
   enumerateAdapters: () async => null,
 );
 
-/// 造一条可配置、空闲的候选。
+/// 造一条可配置、空闲的候选（[seen] 回溯 lastSeen，供时效标注用例）。
 DiscoveryCandidate sampleCandidate({
   String candidateId = 'dev-1',
   String? macSuffix = 'AABBCC',
   String? modelHint = 'NE101',
   bool busy = false,
+  DateTime? seen,
 }) => DiscoveryCandidate(
   candidateId: candidateId,
   macSuffix: macSuffix,
@@ -395,7 +396,7 @@ DiscoveryCandidate sampleCandidate({
   channels: const {DiscoveryChannel.ble},
   provisionable: !busy,
   busy: busy,
-  lastSeen: DateTime.now(),
+  lastSeen: seen ?? DateTime.now(),
   signal: -58,
 );
 
