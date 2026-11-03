@@ -21,7 +21,7 @@ ProvisioningController makeController(
   environmentProbe: probe ?? readyProbe(),
   discoverySource: source,
   establishPairing: (_) async {},
-  connectChannel: connect ?? ((_, _) async => FakeCtDevice()),
+  connectChannel: connect ?? ((_, __) async => FakeCtDevice()),
   scanTimeout: scanTimeout,
 );
 
@@ -33,7 +33,7 @@ void main() {
       final device = FakeCtDevice();
       final controller = makeController(
         source,
-        connect: (_, _) async => device,
+        connect: (_, __) async => device,
       );
       addTearDown(controller.dispose);
       addTearDown(source.close);
@@ -71,7 +71,7 @@ void main() {
     final source = FakeSource();
     final controller = makeController(
       source,
-      connect: (_, _) async => throw Exception('gatt link gone'),
+      connect: (_, __) async => throw Exception('gatt link gone'),
     );
     addTearDown(controller.dispose);
     addTearDown(source.close);
@@ -95,7 +95,7 @@ void main() {
   test('capabilities failure → capabilityError with protocol reason', () async {
     final source = FakeSource();
     final device = FakeCtDevice(rejectDeviceInfo: true);
-    final controller = makeController(source, connect: (_, _) async => device);
+    final controller = makeController(source, connect: (_, __) async => device);
     addTearDown(controller.dispose);
     addTearDown(source.close);
     addTearDown(device.close);

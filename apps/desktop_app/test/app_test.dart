@@ -14,7 +14,7 @@ void main() {
       environmentProbe: blockedProbe(),
       discoverySource: source,
       establishPairing: (_) async {},
-      connectChannel: (_, _) async => FakeCtDevice(),
+      connectChannel: (_, __) async => FakeCtDevice(),
     );
     addTearDown(source.close);
     addTearDown(controller.dispose);

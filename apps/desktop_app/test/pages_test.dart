@@ -19,7 +19,7 @@ ProvisioningController wiredController(
   environmentProbe: readyProbe(),
   discoverySource: source,
   establishPairing: (_) async {},
-  connectChannel: (_, _) async => device,
+  connectChannel: (_, __) async => device,
   scanTimeout: scanTimeout,
 );
 
@@ -94,7 +94,7 @@ void main() {
       environmentProbe: readyProbe(),
       discoverySource: source,
       establishPairing: (_) async {},
-      connectChannel: (_, _) async => throw Exception('gatt link gone'),
+      connectChannel: (_, __) async => throw Exception('gatt link gone'),
     );
     addTearDown(source.close);
     addTearDown(controller.dispose);
