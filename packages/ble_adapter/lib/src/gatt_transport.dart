@@ -53,12 +53,17 @@ final class CtProvGattTransport {
 
   /// 停止泵送并释放流资源。
   Future<void> close() async {
-    await _d2cSub?.cancel();
-    await _mtuSub?.cancel();
+    // Cancellation and closing take effect immediately (a cancelled
+    // subscription stops receiving), but their futures only settle after the
+    // SDK drains internal queues — which some event loops (including the
+    // fake_async test clock) never do. close() must return deterministically
+    // so callers driving cleanup chains can never stall on stream teardown.
+    unawaited(_d2cSub?.cancel());
+    unawaited(_mtuSub?.cancel());
     _d2cSub = null;
     _mtuSub = null;
-    await _events.close();
-    await _frameErrors.close();
+    unawaited(_events.close());
+    unawaited(_frameErrors.close());
     for (final completer in _pending.values) {
       completer.completeError(
         StateError('transport closed before response arrived'),
