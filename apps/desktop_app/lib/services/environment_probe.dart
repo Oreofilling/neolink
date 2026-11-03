@@ -113,10 +113,9 @@ class DesktopEnvironmentProbe {
 
   /// 一次完整探测。BLE 探测异常按 transient 降级（携带原因）。
   Future<EnvironmentCheckReport> probe() async {
-    final results = await Future.wait([
-      _probeBle().catchError(_bleProbeFallback),
-      _enumerateAdapters().catchError((_) => null as String?),
-    ]);
+    // 用 try/catch 而不是 Future.catchError：抛错的 async 闭包实际类型
+    // 参数是 Never，catchError 的运行时类型检查会拒绝处理器返回值。
+    final results = await Future.wait([_guardedBleProbe(), _guardedAdapters()]);
     final bleReport = results[0] as CtEnvironmentReport;
     final adapterJson = results[1] as String?;
     return EnvironmentCheckReport(
@@ -130,11 +129,24 @@ class DesktopEnvironmentProbe {
     );
   }
 
-  static CtEnvironmentReport _bleProbeFallback(Object error) =>
-      CtEnvironmentReport(
+  Future<CtEnvironmentReport> _guardedBleProbe() async {
+    try {
+      return await _probeBle();
+    } catch (error) {
+      return CtEnvironmentReport(
         readiness: CtBleReadiness.transient,
         detail: 'probe failed: $error',
       );
+    }
+  }
+
+  Future<String?> _guardedAdapters() async {
+    try {
+      return await _enumerateAdapters();
+    } catch (_) {
+      return null;
+    }
+  }
 
   static Future<String?> _queryAdaptersViaPowerShell() async {
     if (!Platform.isWindows) return null;
