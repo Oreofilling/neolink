@@ -7,7 +7,6 @@ import 'package:flutter/material.dart';
 import 'package:neolink_ui/neolink_ui.dart';
 
 import '../../l10n/app_localizations.dart';
-import '../../l10n/labels.dart';
 import '../../provisioning/provisioning_controller.dart';
 
 class ResultPage extends StatelessWidget {

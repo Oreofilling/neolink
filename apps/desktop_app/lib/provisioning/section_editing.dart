@@ -114,7 +114,7 @@ ConfigSection applyFieldValue(ConfigSection section, String field, Object? value
         'country' => HalowSection(ssid: ssid, password: password, country: value as String?),
         _ => section,
       };
-    case CommSection(:final type):
+    case CommSection():
       if (field == 'type' && value is CommunicationMode) {
         return CommSection(type: value);
       }
@@ -158,9 +158,9 @@ ConfigSection defaultSectionFor(
           orElse: () => CommunicationMode.wifi,
         );
   return switch (name) {
-    'wifi' => WifiSection.empty(),
-    'cellular' => CellularSection.empty(),
-    'halow' => HalowSection(ssid: '', password: ''),
+    'wifi' => const WifiSection.empty(),
+    'cellular' => const CellularSection.empty(),
+    'halow' => const HalowSection(ssid: '', password: ''),
     'ethernet' => const EthernetSection(),
     'comm' => CommSection(type: fallbackNetwork),
     'mqtt' => const MqttSection(enable: false, host: '', port: 1883),

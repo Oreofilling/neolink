@@ -249,7 +249,10 @@ class SectionFormCard extends StatelessWidget {
   ) {
     final c = context.nl;
     return DropdownButtonFormField<T>(
-      value: current,
+      // initialValue is read once per form-field state: recreate the field
+      // when the value changes outside user input (config.get prefill).
+      key: ValueKey<T?>(current),
+      initialValue: current,
       items: [
         for (final option in options)
           DropdownMenuItem(

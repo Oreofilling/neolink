@@ -11,7 +11,6 @@ import 'package:neolink_ui/neolink_ui.dart';
 import 'package:provisioning_session/provisioning_session.dart' hide ConfigSection;
 
 import '../../l10n/app_localizations.dart';
-import '../../l10n/labels.dart';
 import '../../provisioning/provisioning_controller.dart';
 import '../../provisioning/section_editing.dart';
 import 'section_form.dart';
