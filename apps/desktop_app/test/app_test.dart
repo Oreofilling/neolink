@@ -1,12 +1,28 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:desktop_app/app.dart';
+import 'package:desktop_app/provisioning/provisioning_controller.dart';
+
+import 'provisioning_fakes.dart';
 
 void main() {
-  // 占位页含无限循环的骨架屏动画，禁用 pumpAndSettle，一律单帧 pump。
-  testWidgets('空壳启动：导航、占位页、主题与中英切换', (tester) async {
-    await tester.pumpWidget(const NeoLinkApp());
+  // 页面含无限循环的骨架屏动画，禁用 pumpAndSettle，一律单帧 pump。
+  // 注入阻塞自检的控制器：任何机器上启动页都停在自检，导航行为确定
+  // （不依赖真机蓝牙/网卡探测结果）。
+  testWidgets('空壳启动：导航、自检页、主题与中英切换', (tester) async {
+    final source = FakeSource();
+    final controller = ProvisioningController(
+      environmentProbe: blockedProbe(),
+      discoverySource: source,
+      establishPairing: (_) async {},
+      connectChannel: (_, _) async => FakeCtDevice(),
+    );
+    addTearDown(source.close);
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(NeoLinkApp(controller: controller));
     expect(find.text('NeoLink'), findsOneWidget);
     expect(find.text('环境自检'), findsWidgets);
+    await tester.pump(); // 自检完成（阻塞态停留）
 
     await tester.tap(find.text('扫描设备'));
     await tester.pump();
