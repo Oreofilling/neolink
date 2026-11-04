@@ -4,18 +4,32 @@ import 'package:neolink_ui/neolink_ui.dart';
 import 'package:provisioning_session/provisioning_session.dart';
 
 import '../../l10n/app_localizations.dart';
+import '../../provisioning/device_qr_uri.dart';
 import '../../provisioning/provisioning_controller.dart';
+import '../widgets/qr_camera_scanner.dart';
 
-/// QR add-device guide (v6, T9 fallback shape): a UI-only three-step walk —
-/// wake the device, enter the last 6 characters of its ID (camera scanning
-/// plugs into step 2 later), then connect to the located row. The session
+/// QR add-device guide (v6): a UI-only three-step walk — wake the device,
+/// scan or type the last 6 characters of its ID, then connect to the located
+/// row. Step 2 pairs the camera scanner (stage 3) with manual input as the
+/// always-available fallback. The session
 /// machine is untouched; step 3 highlights the matching candidate and hands
 /// off to the normal connect chain.
 class QrGuidePage extends StatefulWidget {
-  const QrGuidePage({super.key, required this.controller, required this.onExit});
+  const QrGuidePage({
+    super.key,
+    required this.controller,
+    required this.onExit,
+    this.qrFrameSource,
+    this.qrDecoder,
+  });
 
   final ProvisioningController controller;
   final VoidCallback onExit;
+
+  /// Test injection for the step-2 scanner; production uses the real
+  /// camera + zxing wiring built into QrCameraScanner.
+  final QrFrameSource? qrFrameSource;
+  final QrImageDecoder? qrDecoder;
 
   @override
   State<QrGuidePage> createState() => _QrGuidePageState();
@@ -70,6 +84,14 @@ class _QrGuidePageState extends State<QrGuidePage> {
     _goStep(2);
   }
 
+  void _onQrDecoded(DeviceQrUri uri) {
+    // A spec-conforming QR is authoritative for the suffix — same as typing
+    // it by hand, minus the typos; model/channels stay hints for the table.
+    _idController.text = uri.macSuffix;
+    _entered = uri.macSuffix;
+    _goStep(2);
+  }
+
   void _connectMatch(DiscoveryCandidate candidate) {
     // The shell snaps back to the flow workspace when the phase leaves the
     // scan family — no local navigation needed.
@@ -120,6 +142,12 @@ class _QrGuidePageState extends State<QrGuidePage> {
                   const SizedBox(height: 16),
                   NLButton(label: l.qrNext, onPressed: () => _goStep(1)),
                 ] else if (_step == 1) ...[
+                  QrCameraScanner(
+                    frameSource: widget.qrFrameSource,
+                    decoder: widget.qrDecoder,
+                    onDecoded: _onQrDecoded,
+                  ),
+                  const SizedBox(height: 16),
                   _idCard(c, l),
                   const SizedBox(height: 16),
                   Row(
@@ -332,11 +360,6 @@ class _QrGuidePageState extends State<QrGuidePage> {
                   style: TextStyle(fontSize: 11, color: c.destructive),
                 ),
               ),
-            const SizedBox(height: 10),
-            Text(
-              l.qrCameraNote,
-              style: TextStyle(fontSize: 11, color: c.mutedForeground),
-            ),
           ],
         ),
       ),

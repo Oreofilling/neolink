@@ -10,6 +10,14 @@ dependencies:
   flutter_localizations:
     sdk: flutter
   intl: any
+  # Stage 3 QR spike: camera_windows gives preview + takePicture stills (no
+  # frame stream on Windows), flutter_zxing decodes those stills via FFI
+  # zxing-cpp. `camera` is the cross-platform facade whose API desktop_app
+  # uses directly; recent facade versions ship no Windows implementation,
+  # so the federated camera_windows (implements: camera) is declared too.
+  camera: ^0.11.0
+  camera_windows: ^0.3.0+1
+  flutter_zxing: ^1.8.2
   neolink_ui:
     path: ../../packages/neolink_ui
   ct_prov_core:
