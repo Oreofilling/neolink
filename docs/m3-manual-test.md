@@ -109,10 +109,14 @@
 - 操作：在 C2/C4 错误卡反复「返回设备列表」→ 再扫/再连，共 ≥3 轮。
 - 预期：全程无白屏、无卡死、无未响应；每轮返回后扫描立即可用。
 
-## D 配置表单与下发 —— F2 后回归（当前真机不可达）
+## D 配置表单与下发 —— F2 后回归（固件侧已真机验证，UI 侧待跑）
 
-> F2 固件实现 `communication.capabilities.get` + `config.set` + `communication.scan` 后，
-> 用本组用例回归（与 M3 验收报告 §13.3/§13.4 对应）。
+> F2 固件（`f2c3a4f` + `b394838`）已实现并在 NE101 真机（wifi SKU）上用 bleak BLE 探针
+> 验证（25/25 通过，2026-11-04）：能力形态（4 节/wifi scannable）、扫描分页（32+14 条、
+> cursor 续页、陈旧 cursor 拒绝）、config.get 密码掩码、多节 config.set 原子写入 NVS
+> （跨重启持久）、非法载荷 INVALID_ARGUMENT 全或无拒绝、session.close。
+> 本组用例剩余部分是桌面 app 表单交互（D2/D4/D5/D9 及各页 UI 断言），需跑 app 回归
+> （与 M3 验收报告 §13.3/§13.4 对应）。
 
 **D1 能力页**：设备信息卡（NE101-XXXXXX/型号/固件/序列号）、「当前网络：从未配置」、
 wifi/cellular/mqtt 三行带「可配置」「支持扫描」「N 个字段」徽章；勾选 + 「开始配置」。
