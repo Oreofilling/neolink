@@ -1,0 +1,1036 @@
+<title>NeoLink 侧栏全页</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700;900&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+:root {
+  --bg: oklch(97.3% 0.003 262);
+  --card: oklch(100% 0 0);
+  --fg: oklch(21% 0.012 262);
+  --muted-fg: oklch(51% 0.012 262);
+  --border: oklch(88.5% 0.006 262);
+  --border-strong: oklch(80% 0.008 262);
+  --muted: oklch(94.8% 0.004 262);
+  --accent: oklch(52% 0.15 258);
+  --accent-fg: oklch(98.5% 0.01 258);
+  --success: oklch(56% 0.11 155);
+  --warning: oklch(60% 0.12 70);
+  --error: oklch(53% 0.16 25);
+  --sans: 'Noto Sans SC', system-ui, -apple-system, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+  --r-md: 8px;
+  --r-lg: 12px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: oklch(18.5% 0.008 262);
+    --card: oklch(22.5% 0.008 262);
+    --fg: oklch(93% 0.005 262);
+    --muted-fg: oklch(70% 0.012 262);
+    --border: oklch(31% 0.008 262);
+    --border-strong: oklch(42% 0.012 262);
+    --muted: oklch(26.5% 0.008 262);
+    --accent: oklch(74% 0.12 258);
+    --accent-fg: oklch(17% 0.02 258);
+    --success: oklch(73% 0.12 155);
+    --warning: oklch(76% 0.11 70);
+    --error: oklch(68% 0.15 25);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: oklch(18.5% 0.008 262);
+  --card: oklch(22.5% 0.008 262);
+  --fg: oklch(93% 0.005 262);
+  --muted-fg: oklch(70% 0.012 262);
+  --border: oklch(31% 0.008 262);
+  --border-strong: oklch(42% 0.012 262);
+  --muted: oklch(26.5% 0.008 262);
+  --accent: oklch(74% 0.12 258);
+  --accent-fg: oklch(17% 0.02 258);
+  --success: oklch(73% 0.12 155);
+  --warning: oklch(76% 0.11 70);
+  --error: oklch(68% 0.15 25);
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--sans);
+  font-size: 14px;
+  line-height: 1.5;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: max(12px, env(safe-area-inset-top, 0px)) max(56px, env(safe-area-inset-bottom, 0px));
+}
+.app {
+  height: calc(100dvh - 68px);
+  min-height: 540px;
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--card);
+  overflow: hidden;
+}
+/* ---------- side nav ---------- */
+.sidenav {
+  width: 196px; flex: none;
+  border-right: 1px solid var(--border);
+  background: var(--bg);
+  display: flex; flex-direction: column;
+  padding: 14px 10px;
+}
+.brand { display: flex; align-items: center; gap: 8px; font-weight: 900; font-size: 15px; padding: 2px 8px 14px; }
+.brand .mark {
+  width: 22px; height: 22px; border-radius: 6px;
+  background: var(--fg); color: var(--card);
+  display: grid; place-items: center;
+  font-size: 10px; font-weight: 900; font-family: var(--mono);
+}
+.nav-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 10px; border-radius: var(--r-md);
+  font-size: 13px; font-weight: 500; color: var(--muted-fg);
+  cursor: pointer; margin-bottom: 2px;
+}
+.nav-item:hover { color: var(--fg); }
+.nav-item.active { background: var(--muted); color: var(--fg); font-weight: 700; }
+.nav-item .ic { font-family: var(--mono); width: 16px; text-align: center; flex: none; }
+/* ---------- content: topbar + pages ---------- */
+.content { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--card); }
+.topbar {
+  display: flex; align-items: center; gap: 10px;
+  height: 46px; padding: 0 16px;
+  border-bottom: 1px solid var(--border); flex: none;
+}
+.topbar .sp { flex: 1; }
+.pages { flex: 1; overflow-y: auto; min-height: 0; }
+.page { display: none; padding: 20px 24px 32px; max-width: 1080px; margin: 0 auto; }
+body[data-state="boot"] .pg-boot,
+body[data-state="scan"] .pg-scan,
+body[data-state="empty"] .pg-scan,
+body[data-state="qrguide"] .pg-qrguide,
+body[data-state="connecting"] .pg-connecting,
+body[data-state="error"] .pg-error,
+body[data-state="detail"] .pg-detail,
+body[data-state="done"] .pg-done,
+body[data-state="history"] .pg-history,
+body[data-state="settings"] .pg-settings { display: block; }
+.page-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+.page-head h2 { margin: 0; font-size: 18px; font-weight: 800; }
+.page-head .sub { margin: 0; font-size: 12px; color: var(--muted-fg); flex: 1; }
+/* ---------- badges / dots ---------- */
+.badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  padding: 2px 9px;
+  font-size: 11px; font-weight: 500;
+  color: var(--muted-fg);
+  white-space: nowrap;
+}
+.badge .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--muted-fg); }
+.badge.success { color: var(--success); border-color: color-mix(in oklab, var(--success) 45%, var(--border)); }
+.badge.success .dot { background: var(--success); }
+.badge.error { color: var(--error); border-color: color-mix(in oklab, var(--error) 45%, var(--border)); }
+.badge.error .dot { background: var(--error); }
+.badge.warning { color: var(--warning); border-color: color-mix(in oklab, var(--warning) 50%, var(--border)); }
+.badge.warning .dot { background: var(--warning); }
+.badge.info { color: var(--accent); border-color: color-mix(in oklab, var(--accent) 45%, var(--border)); }
+.badge.info .dot { background: var(--accent); }
+.cdot { width: 6px; height: 6px; border-radius: 50%; background: var(--muted-fg); flex: none; }
+.cdot.ok { background: var(--success); }
+.cdot.warn { background: var(--warning); }
+.cdot.run { background: var(--accent); animation: pulse 1.1s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: 0.3; } }
+/* ---------- buttons ---------- */
+.btn {
+  font: inherit; cursor: pointer;
+  border-radius: var(--r-md);
+  border: 1px solid var(--fg);
+  background: var(--fg); color: var(--card);
+  padding: 7px 14px; font-size: 13px; font-weight: 500;
+  white-space: nowrap;
+}
+.btn:hover { opacity: 0.88; }
+.btn.secondary { background: transparent; color: var(--fg); border-color: var(--border-strong); }
+.btn.secondary:hover { border-color: var(--fg); opacity: 1; }
+.btn.ghost { background: transparent; border-color: transparent; color: var(--muted-fg); }
+.btn.ghost:hover { color: var(--fg); }
+.btn.sm { padding: 4px 10px; font-size: 12px; }
+.btn.danger { background: transparent; color: var(--error); border-color: color-mix(in oklab, var(--error) 45%, var(--border)); }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+/* cards */
+.card {
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--card);
+  padding: 14px 16px;
+  margin-bottom: 14px;
+  min-width: 0;
+}
+.card > h3 { margin: 0 0 10px; font-size: 13px; font-weight: 700; }
+.card .sub { font-size: 12px; color: var(--muted-fg); margin: -6px 0 10px; }
+/* ---------- boot page (self-check + countdown) ---------- */
+.pg-boot .card { max-width: 480px; margin: 44px auto 0; }
+.boot-brand { display: flex; align-items: center; gap: 10px; font-weight: 900; font-size: 16px; margin-bottom: 12px; }
+.pg-boot h2 { margin: 0 0 2px; font-size: 17px; font-weight: 800; }
+.brow { display: flex; align-items: center; gap: 10px; padding: 11px 0; border-top: 1px solid var(--border); }
+.brow:first-of-type { border-top: none; }
+.b-ic { width: 18px; height: 18px; display: grid; place-items: center; flex: none; font-size: 12px; font-weight: 700; }
+.b-ic.run { border: 2px solid var(--border-strong); border-top-color: var(--accent); border-radius: 50%; width: 13px; height: 13px; animation: spin 0.9s linear infinite; }
+.b-ic.ok::before { content: '✓'; color: var(--success); }
+.b-ic.warn::before { content: '!'; color: var(--warning); }
+.b-ic.off::before { content: '○'; color: var(--border-strong); }
+.b-nm { font-weight: 700; font-size: 13px; }
+.b-ds { font-size: 11px; color: var(--muted-fg); }
+.b-st { margin-left: auto; font-size: 11px; color: var(--muted-fg); white-space: nowrap; }
+.brow.ok .b-st { color: var(--success); }
+.brow.warn .b-st { color: var(--warning); }
+.boot-cd { display: none; align-items: center; gap: 10px; margin: 16px 0 12px; }
+.boot-cd.show { display: flex; }
+.cdbar { flex: 1; height: 5px; border-radius: 3px; background: var(--muted); overflow: hidden; }
+.cdbar i { display: block; height: 100%; width: 100%; background: var(--accent); transition: width 1s linear; }
+.cdtxt { font-size: 11px; color: var(--muted-fg); font-family: var(--mono); white-space: nowrap; }
+/* ---------- scan page ---------- */
+.ch-row3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 14px; }
+.ch-card { border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--card); padding: 12px 14px; }
+.ch-card .cc-hd { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 700; }
+.ch-card .cc-count { margin-left: auto; font-family: var(--mono); font-size: 12px; color: var(--muted-fg); font-weight: 400; }
+.ch-card .cc-st { font-size: 11px; color: var(--muted-fg); margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ch-card .cc-re { font-size: 10.5px; color: var(--muted-fg); margin-top: 2px; font-family: var(--mono); }
+/* device table */
+.devtable { width: 100%; border-collapse: collapse; font-size: 13px; }
+.devtable th {
+  text-align: left; font-size: 11px; font-weight: 500; color: var(--muted-fg);
+  padding: 6px 10px; border-bottom: 1px solid var(--border-strong); white-space: nowrap;
+}
+.devtable td { padding: 10px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+.devtable tr:last-child td { border-bottom: none; }
+.devtable tr.dev { cursor: pointer; opacity: 0; transition: opacity 0.35s; }
+.devtable tr.dev.in { opacity: 1; }
+.devtable tr.dev.in:hover td { background: var(--bg); }
+.devtable tr.off { cursor: default; }
+.devtable tr.off.in { opacity: 0.55; }
+.devtable .nm { font-weight: 700; }
+.devtable .mono { font-family: var(--mono); font-size: 11px; color: var(--muted-fg); white-space: nowrap; }
+.sig { display: inline-flex; align-items: flex-end; gap: 1.5px; height: 13px; vertical-align: middle; margin-right: 8px; }
+.sig i { width: 3px; border-radius: 1px; background: var(--border-strong); }
+.sig i.on { background: var(--fg); }
+.sig i:nth-child(1) { height: 4px; } .sig i:nth-child(2) { height: 7px; }
+.sig i:nth-child(3) { height: 10px; } .sig i:nth-child(4) { height: 13px; }
+/* not-found hint under table */
+.no-hit { display: flex; align-items: center; gap: 8px; padding: 10px 2px 0; font-size: 12px; color: var(--muted-fg); }
+/* empty state */
+.empty-state { text-align: center; padding: 48px 16px 36px; }
+.empty-state .ring {
+  width: 28px; height: 28px; margin: 0 auto 14px;
+  border-radius: 50%; border: 2px solid var(--border-strong); border-top-color: var(--accent);
+  animation: spin 0.9s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.empty-state h3 { margin: 0 0 6px; font-size: 15px; }
+.empty-state p { margin: 0 0 4px; font-size: 12px; color: var(--muted-fg); }
+/* ---------- QR guide flow ---------- */
+.qr-wrap { max-width: 640px; margin: 0 auto; }
+.qr-steps { display: flex; gap: 8px; margin-bottom: 18px; }
+.qstep { flex: 1; display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted-fg); border: 1px solid var(--border); border-radius: var(--r-md); padding: 8px 10px; min-width: 0; }
+.qstep .n { width: 18px; height: 18px; border-radius: 50%; border: 1px solid var(--border-strong); display: grid; place-items: center; font-family: var(--mono); font-size: 10px; flex: none; }
+.qstep.active { color: var(--fg); font-weight: 700; border-color: var(--fg); }
+.qstep.active .n { background: var(--fg); color: var(--card); border-color: var(--fg); }
+.qstep.done { color: var(--fg); }
+.qstep.done .n { background: var(--success); color: var(--card); border-color: var(--success); }
+.qr-body { min-height: 260px; display: flex; flex-direction: column; justify-content: center; }
+.qr-list { margin: 0; padding-left: 20px; font-size: 14px; }
+.qr-list li { margin-bottom: 10px; }
+.led { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); animation: pulse 1s ease-in-out infinite; vertical-align: middle; }
+.viewfinder { width: min(260px, 70vw); aspect-ratio: 1; margin: 0 auto; border-radius: var(--r-lg); background: linear-gradient(135deg, var(--muted), var(--bg)); position: relative; overflow: hidden; }
+.viewfinder .c { position: absolute; width: 26px; height: 26px; border: 2px solid var(--accent); }
+.c1 { top: 14px; left: 14px; border-right: none; border-bottom: none; border-radius: 6px 0 0 0; }
+.c2 { top: 14px; right: 14px; border-left: none; border-bottom: none; border-radius: 0 6px 0 0; }
+.c3 { bottom: 14px; left: 14px; border-right: none; border-top: none; border-radius: 0 0 0 6px; }
+.c4 { bottom: 14px; right: 14px; border-left: none; border-top: none; border-radius: 0 0 6px 0; }
+.scanline { position: absolute; left: 14px; right: 14px; height: 2px; top: 16%; background: var(--accent); box-shadow: 0 0 8px var(--accent); animation: scanmove 2.2s ease-in-out infinite alternate; }
+@keyframes scanmove { to { top: 82%; } }
+.vf-hint { text-align: center; font-size: 12px; color: var(--muted-fg); margin: 14px 0 0; }
+.match-card { text-align: center; }
+.mc-ok { color: var(--success); font-weight: 700; font-size: 14px; }
+.mc-name { font-size: 20px; font-weight: 900; margin: 10px 0 4px; font-family: var(--mono); }
+.mc-meta { font-size: 12px; color: var(--muted-fg); margin-bottom: 16px; }
+.qr-nav { display: flex; align-items: center; gap: 8px; margin-top: 18px; border-top: 1px solid var(--border); padding-top: 14px; }
+.qr-nav .sp { flex: 1; }
+/* ---------- connect / error pages ---------- */
+.center-card { max-width: 620px; margin: 40px auto 0; }
+.steps { display: flex; flex-direction: column; gap: 12px; }
+.step { display: flex; align-items: center; gap: 10px; font-size: 13px; }
+.step .ic { width: 18px; height: 18px; display: grid; place-items: center; flex: none; }
+.step.done .ic::before { content: '✓'; font-size: 13px; }
+.step.run .ic { border: 2px solid var(--border-strong); border-top-color: var(--accent); border-radius: 50%; width: 13px; height: 13px; animation: spin 0.9s linear infinite; }
+.step.wait { color: var(--muted-fg); }
+.step.wait .ic::before { content: '○'; font-size: 11px; color: var(--border-strong); }
+.mono-log {
+  font-family: var(--mono); font-size: 10.5px; color: var(--muted-fg);
+  border-top: 1px solid var(--border); margin-top: 12px; padding-top: 10px;
+  white-space: pre-wrap;
+}
+.err-title { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 700; color: var(--error); margin-bottom: 8px; }
+.err-action { font-size: 13px; margin: 0 0 10px; }
+.err-action b { font-weight: 700; }
+/* ---------- config page ---------- */
+.ctx-bar {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 12px; margin-bottom: 16px;
+}
+.ctx-bar h2 { margin: 0; font-size: 17px; font-weight: 800; }
+.ctx-bar .mono { font-size: 11px; color: var(--muted-fg); font-family: var(--mono); }
+.ctx-bar .wbar { width: 130px; height: 5px; border-radius: 3px; background: var(--muted); overflow: hidden; }
+.ctx-bar .wbar i { display: block; height: 100%; background: var(--accent); width: 75%; transition: width 1s linear; }
+.ctx-bar .wtxt { font-size: 11px; color: var(--muted-fg); font-family: var(--mono); white-space: nowrap; }
+.ctx-bar .sp { flex: 1; }
+.cfg { display: grid; grid-template-columns: 1.55fr 340px; gap: 16px; align-items: start; }
+.cfg-side { position: sticky; top: 0; display: flex; flex-direction: column; gap: 14px; }
+.cfg-side .card { margin-bottom: 0; }
+.info-row { display: flex; flex-wrap: wrap; gap: 6px; }
+/* sections checklist */
+.sec-row { display: flex; align-items: flex-start; gap: 10px; padding: 9px 0; }
+.sec-row + .sec-row { border-top: 1px solid var(--border); }
+.sec-row input[type="checkbox"] { accent-color: var(--fg); margin-top: 3px; }
+.sec-row .nm { font-weight: 700; font-size: 13px; }
+.sec-row .fds { font-size: 11px; color: var(--muted-fg); font-family: var(--mono); margin-top: 2px; }
+.sec-row .spacer { flex: 1; }
+/* forms */
+.field { margin-top: 12px; min-width: 0; }
+.field:first-child { margin-top: 0; }
+.f2 { display: grid; grid-template-columns: 1.4fr 1fr; gap: 0 12px; }
+.field label { display: block; font-size: 11px; color: var(--muted-fg); margin-bottom: 5px; }
+.field input[type="text"], .field input[type="password"] {
+  width: 100%; font: inherit; font-size: 13px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-strong); border-radius: var(--r-md);
+  background: var(--card); color: var(--fg);
+}
+.field input:focus { outline: none; border-color: var(--fg); }
+.field .hint { font-size: 11px; color: var(--muted-fg); margin-top: 4px; }
+.field.secret { position: relative; }
+.field.secret .eye {
+  position: absolute; right: 6px; bottom: 6px;
+  background: none; border: none; cursor: pointer; color: var(--muted-fg);
+  font-size: 13px; padding: 2px 4px;
+}
+.field.secret .eye:hover { color: var(--fg); }
+.nets { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 6px; }
+.netrow {
+  display: flex; align-items: center; gap: 8px;
+  border: 1px solid var(--border); border-radius: var(--r-md);
+  padding: 8px 10px; cursor: pointer; font-size: 13px; min-width: 0;
+}
+.netrow:hover { border-color: var(--border-strong); }
+.netrow.picked { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.netrow .nm { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.netrow .meta { font-size: 11px; color: var(--muted-fg); font-family: var(--mono); white-space: nowrap; }
+/* underline tabs */
+.tabs { display: flex; gap: 18px; border-bottom: 1px solid var(--border); margin: 0 0 12px; }
+.tab { padding: 8px 2px; font-size: 13px; font-weight: 500; color: var(--muted-fg); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.tab.active { color: var(--fg); font-weight: 700; border-bottom-color: var(--fg); }
+/* payload preview */
+.payload {
+  font-family: var(--mono); font-size: 11px; color: var(--muted-fg);
+  background: var(--bg); border: 1px solid var(--border); border-radius: var(--r-md);
+  padding: 10px 12px; white-space: pre-wrap; user-select: text;
+}
+/* deliver card */
+.deliver-list { list-style: none; margin: 0 0 12px; padding: 0; font-size: 12px; color: var(--muted-fg); }
+.deliver-list li { padding: 3px 0; display: flex; gap: 8px; }
+.deliver-list b { color: var(--fg); font-family: var(--mono); font-weight: 600; }
+/* receipt */
+.receipt-head { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 700; }
+.receipt-head .ok { color: var(--success); }
+.receipt-item { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 13px; }
+.receipt-item .ok { color: var(--success); }
+/* history table */
+.hist-row { display: grid; grid-template-columns: 1.2fr 1fr auto auto; gap: 10px; align-items: center; padding: 11px 10px; border-bottom: 1px solid var(--border); cursor: pointer; }
+.hist-row:last-child { border-bottom: none; }
+.hist-row:hover { background: var(--bg); }
+.hist-row .nm { font-weight: 700; font-size: 13px; }
+.hist-row .meta { font-size: 11px; color: var(--muted-fg); font-family: var(--mono); }
+/* settings */
+.set-row { display: flex; align-items: center; gap: 10px; padding: 11px 0; border-bottom: 1px solid var(--border); }
+.set-row:last-child { border-bottom: none; }
+.set-row .k { font-size: 13px; font-weight: 500; flex: 1; }
+.set-row .d { font-size: 11px; color: var(--muted-fg); }
+/* ---------- demo switcher ---------- */
+.demo-bar {
+  position: fixed; right: 16px; bottom: 14px; z-index: 50;
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end;
+  max-width: min(92vw, 760px);
+}
+.demo-bar .tag {
+  font-size: 10px; color: var(--muted-fg);
+  background: var(--card); border: 1px solid var(--border); border-radius: 999px; padding: 3px 8px;
+}
+.chip {
+  font: inherit; font-size: 11px; cursor: pointer;
+  background: var(--card); color: var(--muted-fg);
+  border: 1px solid var(--border-strong); border-radius: 999px; padding: 3px 10px;
+}
+.chip:hover { color: var(--fg); }
+.chip.active { background: var(--fg); color: var(--card); border-color: var(--fg); }
+/* responsive */
+@media (max-width: 980px) {
+  .cfg, .f2, .nets { grid-template-columns: 1fr; }
+  .ch-row3 { grid-template-columns: 1fr; }
+  .cfg-side { position: static; }
+}
+@media (max-width: 760px) {
+  .app { flex-direction: column; min-height: 0; height: auto; }
+  .sidenav { width: 100%; flex-direction: row; align-items: center; border-right: none; border-bottom: 1px solid var(--border); padding: 8px 10px; }
+  .brand { padding: 0 8px 0 0; }
+  .nav-item { padding: 7px 9px; }
+  body { font-size: 13px; }
+  .page { padding: 14px 14px 20px; }
+  .devtable .hide-sm { display: none; }
+}
+</style>
+
+<div class="app" id="app">
+  <!-- ================= side nav ================= -->
+  <aside class="sidenav">
+    <div class="brand"><span class="mark">NL</span>NeoLink</div>
+    <div class="nav-item active" data-nav="scan" onclick="navTo('scan')"><span class="ic">⌖</span>扫描设备</div>
+    <div class="nav-item" data-nav="history" onclick="navTo('history')"><span class="ic">☰</span>历史会话</div>
+    <div class="nav-item" data-nav="settings" onclick="navTo('settings')"><span class="ic">⚙</span>设置</div>
+  </aside>
+
+  <!-- ================= content ================= -->
+  <div class="content">
+    <header class="topbar">
+      <span class="badge success"><span class="dot"></span>BLE 适配器可用</span>
+      <span class="badge info"><span class="dot" id="tbDot"></span><span id="tbState">启动自检…</span></span>
+      <span class="sp"></span>
+      <button class="btn ghost sm" id="langBtn">EN</button>
+      <button class="btn ghost sm" id="themeBtn" title="切换主题">◐</button>
+    </header>
+
+    <div class="pages">
+      <!-- ========== boot: self-check animation + countdown ========== -->
+      <div class="page pg-boot">
+        <div class="card">
+          <div class="boot-brand"><span class="mark" style="width:26px;height:26px;border-radius:7px;font-size:11px;display:grid;place-items:center;background:var(--fg);color:var(--card);font-family:var(--mono);font-weight:900">NL</span>NeoLink</div>
+          <h2>环境自检</h2>
+          <p class="sub">检查本机发现通道 · 完成后自动进入扫描</p>
+          <div style="height:8px"></div>
+          <div class="brow run" id="bc-ble">
+            <span class="b-ic run"></span>
+            <div><div class="b-nm">BLE 适配器</div><div class="b-ds">CT-Prov 广播 · 主动扫描</div></div>
+            <span class="b-st">检测中…</span>
+          </div>
+          <div class="brow run" id="bc-ap">
+            <span class="b-ic run"></span>
+            <div><div class="b-nm">AP 热点枚举</div><div class="b-ds">网卡扫描 · 需管理员权限</div></div>
+            <span class="b-st">检测中…</span>
+          </div>
+          <div class="brow run" id="bc-disc">
+            <span class="b-ic run"></span>
+            <div><div class="b-nm">CT-Disc 组网发现</div><div class="b-ds">局域网发现 · 后续版本</div></div>
+            <span class="b-st">检测中…</span>
+          </div>
+          <div class="boot-cd" id="bootCd">
+            <div class="cdbar"><i id="bootBar"></i></div>
+            <span class="cdtxt"><b id="bootNum">5</b> 秒后自动进入扫描</span>
+          </div>
+          <button class="btn sm" onclick="enterScan()">立即进入扫描</button>
+        </div>
+      </div>
+
+      <!-- ========== scan page ========== -->
+      <div class="page pg-scan">
+        <div class="page-head">
+          <h2>设备扫描</h2>
+          <span class="badge" id="devCount">扫描中…</span>
+          <p class="sub">三通道持续扫描 · 无需手动刷新</p>
+          <button class="btn secondary sm" id="rescanBtn">⟳ 重新扫描</button>
+        </div>
+
+        <div class="ch-row3">
+          <div class="ch-card" id="chc-ble">
+            <div class="cc-hd"><span class="cdot run"></span>BLE<span class="cc-count">—</span></div>
+            <div class="cc-st">待启动</div>
+            <div class="cc-re">CT-Prov 广播 · 主动扫描</div>
+          </div>
+          <div class="ch-card" id="chc-ap">
+            <div class="cc-hd"><span class="cdot run"></span>AP 热点<span class="cc-count">—</span></div>
+            <div class="cc-st">待启动</div>
+            <div class="cc-re">网卡枚举 · 需管理员权限</div>
+          </div>
+          <div class="ch-card" id="chc-disc">
+            <div class="cc-hd"><span class="cdot run"></span>CT-Disc<span class="cc-count">—</span></div>
+            <div class="cc-st">待启动</div>
+            <div class="cc-re">组网发现 · 后续版本启用</div>
+          </div>
+        </div>
+
+        <div class="card">
+          <table class="devtable" id="devTable">
+            <thead>
+              <tr><th>设备</th><th>通道</th><th>信号</th><th>状态</th><th class="hide-sm">最后出现</th><th style="width:90px"></th></tr>
+            </thead>
+            <tbody>
+              <tr class="dev" data-name="NE101-9F2C1A" data-db="-42 dBm" data-ch="ble">
+                <td class="nm">NE101-9F2C1A</td>
+                <td><span class="badge">BLE</span></td>
+                <td class="mono"><span class="sig"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i></span>-42 dBm</td>
+                <td><span class="badge success">可配置</span></td>
+                <td class="mono hide-sm">2 秒前 · wifi 配置模式</td>
+                <td><button class="btn sm">选择</button></td>
+              </tr>
+              <tr class="dev" data-name="NE101-BBC6DC" data-db="-67 dBm" data-ch="ble">
+                <td class="nm">NE101-BBC6DC</td>
+                <td><span class="badge">BLE</span></td>
+                <td class="mono"><span class="sig"><i class="on"></i><i class="on"></i><i class="on"></i><i></i></span>-67 dBm</td>
+                <td><span class="badge success">可配置</span></td>
+                <td class="mono hide-sm">5 秒前 · wifi 配置模式</td>
+                <td><button class="btn sm">选择</button></td>
+              </tr>
+              <tr class="dev" data-name="NE301-84C102" data-db="-58 dBm · ch6" data-ch="ap">
+                <td class="nm">NE301-84C102</td>
+                <td><span class="badge info">AP</span></td>
+                <td class="mono"><span class="sig"><i class="on"></i><i class="on"></i><i class="on"></i><i></i></span>-58 dBm</td>
+                <td><span class="badge success">可配置</span></td>
+                <td class="mono hide-sm">4 秒前 · AP 热点直连</td>
+                <td><button class="btn sm">选择</button></td>
+              </tr>
+              <tr class="dev off" data-ch="ble">
+                <td class="nm">NE101-77AA03</td>
+                <td><span class="badge">BLE</span></td>
+                <td class="mono"><span class="sig"><i class="on"></i><i class="on"></i><i class="on"></i><i></i></span>-55 dBm</td>
+                <td><span class="badge error">占用中</span></td>
+                <td class="mono hide-sm">8 秒前 · 另一客户端配置</td>
+                <td><button class="btn sm" disabled>占用中</button></td>
+              </tr>
+              <tr class="dev off" data-ch="ble">
+                <td class="nm">NE305-A1D290</td>
+                <td><span class="badge">BLE</span></td>
+                <td class="mono"><span class="sig"><i class="on"></i><i class="on"></i><i></i><i></i></span>-71 dBm</td>
+                <td><span class="badge warning">信号消失</span></td>
+                <td class="mono hide-sm">34 秒前 · 超 TTL 待广播</td>
+                <td><button class="btn sm" disabled>不可选</button></td>
+              </tr>
+            </tbody>
+          </table>
+          <div class="empty-state" id="emptyState" hidden>
+            <div class="ring"></div>
+            <h3>未发现您的设备</h3>
+            <p>请扫描设备机身二维码添加 · 三通道仍在后台持续扫描</p>
+            <div style="margin:14px 0 8px">
+              <button class="btn" onclick="setState('qrguide')">▣ 扫码添加设备</button>
+            </div>
+            <p id="scanTick" style="font-family:var(--mono)">12 / 20 s · 设备进入配置模式后会自动出现在列表中</p>
+          </div>
+        </div>
+
+        <div class="no-hit" id="noHit">
+          <span>未发现您的设备？</span>
+          <button class="btn ghost sm" onclick="setState('qrguide')">扫码添加 ▸</button>
+        </div>
+      </div>
+
+      <!-- ========== QR guide flow ========== -->
+      <div class="page pg-qrguide">
+        <div class="page-head">
+          <button class="btn ghost sm" onclick="navTo('scan')">← 返回扫描</button>
+          <h2>扫码添加设备</h2>
+          <p class="sub">扫描设备机身二维码，定向找到您的设备</p>
+        </div>
+        <div class="qr-wrap card">
+          <div class="qr-steps">
+            <div class="qstep active" id="qs1"><span class="n">1</span>唤醒设备</div>
+            <div class="qstep" id="qs2"><span class="n">2</span>扫描二维码</div>
+            <div class="qstep" id="qs3"><span class="n">3</span>连接设备</div>
+          </div>
+
+          <div class="qr-body" id="qb1">
+            <ol class="qr-list">
+              <li>短按设备电源键（或重新上电），进入<b>配置模式</b></li>
+              <li>确认指示灯<b style="color:var(--accent)">蓝色闪烁</b> <span class="led"></span>（窗口约 60 秒）</li>
+              <li>将设备靠近电脑，保持在 1 米以内</li>
+            </ol>
+          </div>
+
+          <div class="qr-body" id="qb2" hidden>
+            <div class="viewfinder">
+              <span class="c c1"></span><span class="c c2"></span><span class="c c3"></span><span class="c c4"></span>
+              <div class="scanline"></div>
+            </div>
+            <p class="vf-hint">将机身二维码对准摄像头 · 识别后自动进入下一步</p>
+          </div>
+
+          <div class="qr-body" id="qb3" hidden>
+            <div class="match-card">
+              <div class="mc-ok">✓ 二维码识别成功</div>
+              <div class="mc-name">NE101-BBC6DC</div>
+              <div class="mc-meta">MAC 后缀 BBC6DC · 已在扫描列表置顶并高亮</div>
+              <button class="btn" onclick="qrConnect()">连接该设备 ▸</button>
+            </div>
+          </div>
+
+          <div class="qr-nav">
+            <button class="btn ghost sm" id="qrPrev" onclick="qrGo(qrStep-1)">上一步</button>
+            <span class="sp"></span>
+            <button class="btn ghost sm" onclick="navTo('scan')">跳过，手动选择</button>
+            <button class="btn sm" id="qrNext" onclick="qrGo(qrStep+1)">下一步</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ========== connecting ========== -->
+      <div class="page pg-connecting">
+        <div class="center-card card">
+          <span class="badge info"><span class="dot"></span>连接中 · <span id="cnName">NE101-BBC6DC</span></span>
+          <div style="height:16px"></div>
+          <div class="steps">
+            <div class="step done"><span class="ic"></span>系统配对（Just Works）</div>
+            <div class="step done"><span class="ic"></span>建立 GATT 链路 · MTU 256</div>
+            <div class="step run"><span class="ic"></span>读取设备信息</div>
+            <div class="step wait"><span class="ic"></span>读取能力声明</div>
+          </div>
+          <div class="mono-log">open: connected
+open: gatt 7b1e0001…[3]
+open: D2C subscribed
+open: mtu=256
+req id=1 device.info.get …</div>
+          <div style="margin-top:14px;display:flex;gap:8px">
+            <button class="btn danger sm" onclick="navTo('scan')">取消连接</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ========== connect error ========== -->
+      <div class="page pg-error">
+        <div class="center-card card">
+          <div class="err-title">✕ 能力读取超时</div>
+          <p class="err-action"><b>设备可能已退出配置模式</b>（窗口约 60 秒自动休眠）。请重新唤醒设备后重试；连续失败时，在系统蓝牙设置中删除已配对设备再试。</p>
+          <div class="mono-log">TimeoutException after 10s
+op=communication.capabilities.get id=2
+device answered: device.info ✓ (200 B)</div>
+          <div style="margin-top:14px;display:flex;gap:8px">
+            <button class="btn sm" onclick="setState('connecting')">重试连接</button>
+            <button class="btn secondary sm" onclick="navTo('scan')">返回扫描</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ========== config page ========== -->
+      <div class="page pg-detail">
+        <div class="ctx-bar">
+          <button class="btn ghost sm" onclick="navTo('scan')">← 返回扫描</button>
+          <h2 id="dvName">NE101-BBC6DC</h2>
+          <span class="mono" id="dvDb">-67 dBm · SN BBC6DC</span>
+          <span class="badge success"><span class="dot"></span>已连接</span>
+          <span class="wbar"><i id="cdBar"></i></span>
+          <span class="wtxt">配置窗口剩余 <b id="cdNum">45</b>s</span>
+          <span class="sp"></span>
+          <button class="btn ghost sm" onclick="navTo('scan')">取消会话</button>
+        </div>
+
+        <div class="cfg">
+          <div>
+            <div class="card">
+              <h3>配置内容</h3>
+              <p class="sub">勾选要修改的项目 · 未勾选的保持设备现有设置</p>
+              <div class="sec-row">
+                <input type="checkbox" checked>
+                <div><div class="nm">Wi-Fi 联网</div><div class="fds">wifi · ssid · password · bssid</div></div>
+                <span class="spacer"></span>
+                <span class="badge info" style="padding:1px 8px">可扫描</span>
+              </div>
+              <div class="sec-row">
+                <input type="checkbox" checked>
+                <div><div class="nm">MQTT 数据推送</div><div class="fds">mqtt · enable · host · port · … · topic · qos</div></div>
+              </div>
+              <div class="sec-row" style="opacity:0.55">
+                <input type="checkbox" disabled>
+                <div><div class="nm">蜂窝网络 4G</div><div class="fds">cellular · 本机未装 CAT1 模组</div></div>
+                <span class="spacer"></span>
+                <span class="badge" style="padding:1px 8px">只读</span>
+              </div>
+            </div>
+
+            <div class="tabs">
+              <div class="tab active">Wi-Fi 联网</div>
+              <div class="tab">MQTT 数据推送</div>
+            </div>
+
+            <div class="card">
+              <div class="f2">
+                <div class="field">
+                  <label>SSID</label>
+                  <input type="text" value="CT-PROV-BENCH">
+                </div>
+                <div class="field secret">
+                  <label>密码</label>
+                  <input type="password" value="benchpass1" id="pwInput">
+                  <button class="eye" onclick="togglePw(this)" title="显示/隐藏">👁</button>
+                  <div class="hint">留空 = 保持现有密码</div>
+                </div>
+              </div>
+              <div class="field">
+                <label>扫描网络 · 已从设备侧读取 14 个</label>
+                <div class="nets">
+                  <div class="netrow picked"><span class="nm">CT-PROV-BENCH</span><span class="sig"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i></span><span class="meta">-34 dBm · ch11</span></div>
+                  <div class="netrow"><span class="nm">NE302_2001</span><span class="sig"><i class="on"></i><i class="on"></i><i class="on"></i><i></i></span><span class="meta">-58 dBm · ch6</span></div>
+                  <div class="netrow"><span class="nm">TP-LINK_5F2C</span><span class="sig"><i class="on"></i><i class="on"></i><i></i><i></i></span><span class="meta">-74 dBm · ch1</span></div>
+                  <div class="netrow"><span class="nm">Office-2.4G</span><span class="sig"><i class="on"></i><i class="on"></i><i></i><i></i></span><span class="meta">-77 dBm · ch6</span></div>
+                </div>
+                <button class="btn ghost sm" style="margin-top:8px">加载更多（10+）</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="cfg-side">
+            <div class="card">
+              <h3>设备信息</h3>
+              <div class="info-row">
+                <span class="badge">型号 NE101</span>
+                <span class="badge">固件 20261103</span>
+                <span class="badge">WiFi SKU</span>
+                <span class="badge">供电 电池</span>
+              </div>
+              <p class="sub" style="margin:10px 0 0">序列号 <span style="font-family:var(--mono)">NE101202610270001</span></p>
+            </div>
+            <div class="card">
+              <h3>下发预览</h3>
+              <p class="sub">密钥默认掩码 · 同名配置整体替换，可安全重复下发</p>
+              <div class="payload" id="payloadPre"></div>
+              <button class="btn ghost sm" style="margin-top:8px" onclick="toggleMask(this)">显示明文</button>
+            </div>
+            <div class="card">
+              <h3>下发</h3>
+              <ul class="deliver-list">
+                <li><b>2</b> 项 · Wi-Fi + MQTT</li>
+                <li>约 <b>0.4 KB</b> · 加密链路传输</li>
+                <li>校验失败整单拒绝，无部分写入</li>
+              </ul>
+              <button class="btn" style="width:100%" onclick="setState('done')">下发配置 ▸</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ========== done ========== -->
+      <div class="page pg-done">
+        <div class="center-card card">
+          <div class="receipt-head"><span class="ok">✓</span>已保存 2 项配置</div>
+          <div style="height:8px"></div>
+          <div class="receipt-item"><span class="ok">✓</span>Wi-Fi 联网 · CT-PROV-BENCH</div>
+          <div class="receipt-item"><span class="ok">✓</span>MQTT 推送 · bench.mqtt.local:1883</div>
+          <div style="height:10px"></div>
+          <p class="sub" style="margin:0">应用方式：<b>重连网络</b> —— 设备即将断开 BLE 并连接 WiFi，指示灯转为常亮即成功。</p>
+          <div class="info-row" style="margin-top:12px">
+            <span class="badge">NE101-BBC6DC</span>
+            <span class="badge">SN BBC6DC</span>
+            <span class="badge">固件 20261103</span>
+            <span class="badge">2026-11-04 11:47</span>
+          </div>
+          <div style="margin-top:16px">
+            <button class="btn" onclick="navTo('scan')">完成并返回扫描</button>
+            <button class="btn ghost sm" onclick="navTo('history')">查看历史会话</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ========== history ========== -->
+      <div class="page pg-history">
+        <div class="page-head">
+          <h2>历史会话</h2>
+          <p class="sub">本机保存的配置记录 · 点击查看回执</p>
+        </div>
+        <div class="card" style="padding:4px 8px">
+          <div class="hist-row" onclick="setState('done')">
+            <span class="nm">NE101-BBC6DC</span>
+            <span class="meta">Wi-Fi + MQTT</span>
+            <span class="meta">2026-11-04 11:47</span>
+            <span class="badge success">成功</span>
+          </div>
+          <div class="hist-row" onclick="setState('done')">
+            <span class="nm">NE101-9F2C1A</span>
+            <span class="meta">Wi-Fi</span>
+            <span class="meta">2026-11-04 10:12</span>
+            <span class="badge success">成功</span>
+          </div>
+          <div class="hist-row">
+            <span class="nm">NE305-A1D290</span>
+            <span class="meta">Wi-Fi</span>
+            <span class="meta">2026-11-04 09:58</span>
+            <span class="badge warning">超时</span>
+          </div>
+          <div class="hist-row">
+            <span class="nm">NE301-84C102</span>
+            <span class="meta">蜂窝 + MQTT</span>
+            <span class="meta">2026-11-03 17:31</span>
+            <span class="badge success">成功</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ========== settings ========== -->
+      <div class="page pg-settings">
+        <div class="page-head">
+          <h2>设置</h2>
+        </div>
+        <div class="card" style="max-width:640px">
+          <div class="set-row">
+            <span class="k">语言</span>
+            <span class="d">界面语言，切换即时生效</span>
+            <button class="btn secondary sm" onclick="flipLangBtn(document.getElementById('langBtn'))">中文 / EN</button>
+          </div>
+          <div class="set-row">
+            <span class="k">主题</span>
+            <span class="d">跟随系统或手动固定（右上角 ◐ 同步）</span>
+            <button class="btn secondary sm" onclick="flipTheme()">浅色 / 深色</button>
+          </div>
+          <div class="set-row">
+            <span class="k">蓝牙适配器</span>
+            <span class="d">RTL8761B · 驱动 1.6</span>
+            <span class="badge success">正常</span>
+          </div>
+          <div class="set-row">
+            <span class="k">管理员权限</span>
+            <span class="d">AP 热点枚举需要；未提权时该通道降级</span>
+            <span class="badge warning">未提权</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- demo-only state switcher -->
+<div class="demo-bar">
+  <span class="tag">原型状态预览（非产品 UI）</span>
+  <button class="chip" data-s="boot">启动自检</button>
+  <button class="chip active" data-s="scan">扫描</button>
+  <button class="chip" data-s="empty">空态</button>
+  <button class="chip" data-s="qrguide">扫码指引</button>
+  <button class="chip" data-s="connecting">连接中</button>
+  <button class="chip" data-s="error">连接失败</button>
+  <button class="chip" data-s="detail">配置</button>
+  <button class="chip" data-s="done">下发完成</button>
+  <button class="chip" data-s="history">历史</button>
+</div>
+
+<script>
+var state = 'boot';
+var cd = 45;
+var timers = [];
+
+function T(fn, ms) { timers.push(setTimeout(fn, ms)); }
+function clearTimers() { timers.forEach(clearTimeout); timers = []; }
+
+var MASKED = '{\n  "wifi": {\n    "ssid": "CT-PROV-BENCH",\n    "password": "••••••••（已掩码）"\n  },\n  "mqtt": {\n    "enable": true,\n    "host": "bench.mqtt.local",\n    "port": 1883\n  }\n}';
+var PLAIN  = '{\n  "wifi": {\n    "ssid": "CT-PROV-BENCH",\n    "password": "benchpass1"\n  },\n  "mqtt": {\n    "enable": true,\n    "host": "bench.mqtt.local",\n    "port": 1883\n  }\n}';
+document.getElementById('payloadPre').textContent = MASKED;
+
+/* nav + state */
+function navTo(p) { setState(p); }
+function setState(s) {
+  state = s;
+  document.body.dataset.state = s;
+  document.querySelectorAll('.chip').forEach(function (c) {
+    c.classList.toggle('active', c.dataset.s === s);
+  });
+  var nav = (s === 'history') ? 'history' : (s === 'settings') ? 'settings' : 'scan';
+  document.querySelectorAll('.nav-item').forEach(function (n) {
+    n.classList.toggle('active', n.dataset.nav === nav);
+  });
+  document.getElementById('emptyState').hidden = (s !== 'empty');
+  document.getElementById('devTable').style.display = (s === 'empty') ? 'none' : '';
+  document.getElementById('noHit').style.display = (s === 'empty') ? 'none' : '';
+  /* topbar status line */
+  var txt = document.getElementById('tbState');
+  var dot = document.getElementById('tbDot');
+  dot.className = 'dot';
+  if (s === 'boot') txt.textContent = '启动自检…';
+  else if (s === 'connecting') { txt.textContent = '连接设备中…'; dot.classList.add('run'); }
+  else if (s === 'detail') txt.textContent = '配置窗口 ' + cd + 's';
+  else if (s === 'error') { txt.textContent = '连接失败'; dot.classList.add('run'); }
+  else if (s === 'qrguide') txt.textContent = '扫码指引中…';
+  else { txt.textContent = '三通道扫描中'; dot.classList.add('run'); }
+  if (s === 'connecting') {
+    setTimeout(function () { if (state === 'connecting') setState('detail'); }, 2600);
+  }
+  if (s === 'qrguide') qrGo(1);
+}
+document.querySelectorAll('.chip').forEach(function (c) {
+  c.addEventListener('click', function () {
+    clearTimers();
+    if (c.dataset.s === 'boot') bootSeq();
+    else if (c.dataset.s === 'scan') enterScan();
+    else setState(c.dataset.s);
+  });
+});
+
+/* ---------- boot page: self-check animation + countdown ---------- */
+function bset(k, cls, st) {
+  var r = document.getElementById('bc-' + k);
+  r.className = 'brow ' + cls;
+  r.querySelector('.b-ic').className = 'b-ic ' + cls;
+  r.querySelector('.b-st').textContent = st;
+}
+function bootSeq() {
+  clearTimers();
+  setState('boot');
+  ['ble', 'ap', 'disc'].forEach(function (k) { bset(k, 'run', '检测中…'); });
+  document.getElementById('bootCd').classList.remove('show');
+  T(function () { bset('ble', 'ok', '可用'); }, 500);
+  T(function () { bset('ap', 'warn', '受限 · 仍枚举'); }, 1000);
+  T(function () { bset('disc', 'off', '未启用'); }, 1450);
+  T(function () { document.getElementById('bootCd').classList.add('show'); }, 1600);
+  for (var i = 0; i <= 5; i++) {
+    (function (i) {
+      T(function () {
+        document.getElementById('bootNum').textContent = 5 - i;
+        document.getElementById('bootBar').style.width = ((5 - i) / 5 * 100) + '%';
+        if (i === 5) enterScan();
+      }, 1600 + i * 1000);
+    })(i);
+  }
+}
+
+/* enter scan page: channels on, devices stream in */
+function enterScan() {
+  clearTimers();
+  chSet('ble', 'ok', '扫描中 · 主动扫描', '0 台');
+  chSet('ap', 'warn', '受限 · 枚举中（需管理员）', '0 台');
+  chSet('disc', '', '未启用 · 后续版本', '—');
+  setState('scan');
+  var dev = document.getElementById('devCount');
+  dev.textContent = '自动扫描中';
+  var rows = document.querySelectorAll('tr.dev');
+  rows.forEach(function (r) { r.classList.remove('in'); });
+  var bleN = 0, apN = 0;
+  rows.forEach(function (r, i) {
+    T(function () {
+      r.classList.add('in');
+      if (r.dataset.ch === 'ap') { apN++; chSet('ap', 'warn', '受限 · 枚举中（需管理员）', apN + ' 台'); }
+      else { bleN++; chSet('ble', 'ok', '扫描中 · 主动扫描', bleN + ' 台'); }
+    }, 300 + i * 320);
+  });
+  T(function () { dev.textContent = '3 台可配置'; }, 300 + rows.length * 320 + 300);
+}
+
+/* ---------- channel cards ---------- */
+function chSet(k, dot, st, cnt) {
+  var card = document.getElementById('chc-' + k);
+  card.querySelector('.cdot').className = 'cdot' + (dot ? ' ' + dot : '');
+  card.querySelector('.cc-st').textContent = st;
+  card.querySelector('.cc-count').textContent = cnt;
+}
+
+/* device rows: pick -> connecting -> config */
+document.querySelectorAll('tr.dev:not(.off)').forEach(function (r) {
+  r.addEventListener('click', function () {
+    document.getElementById('dvName').textContent = r.dataset.name;
+    document.getElementById('cnName').textContent = r.dataset.name;
+    document.getElementById('dvDb').textContent = r.dataset.db + ' · SN ' + r.dataset.name.split('-')[1];
+    setState('connecting');
+  });
+});
+
+/* ---------- QR guide flow ---------- */
+var qrStep = 1;
+var qrTimer = null;
+function qrGo(n) {
+  if (n < 1) { navTo('scan'); return; }
+  if (n > 3) { qrConnect(); return; }
+  qrStep = n;
+  clearTimeout(qrTimer);
+  [1, 2, 3].forEach(function (i) {
+    document.getElementById('qb' + i).hidden = (i !== n);
+    var s = document.getElementById('qs' + i);
+    s.classList.toggle('active', i === n);
+    s.classList.toggle('done', i < n);
+    s.querySelector('.n').textContent = (i < n) ? '✓' : i;
+  });
+  document.getElementById('qrPrev').style.visibility = (n === 1) ? 'hidden' : 'visible';
+  document.getElementById('qrNext').textContent = (n === 3) ? '连接该设备 ▸' : '下一步';
+  if (n === 2) {
+    qrTimer = setTimeout(function () { if (state === 'qrguide' && qrStep === 2) qrGo(3); }, 2600);
+  }
+}
+function qrConnect() {
+  document.getElementById('dvName').textContent = 'NE101-BBC6DC';
+  document.getElementById('cnName').textContent = 'NE101-BBC6DC';
+  document.getElementById('dvDb').textContent = '-67 dBm · SN BBC6DC';
+  setState('connecting');
+}
+
+/* config-window countdown (ctx-bar + topbar) */
+setInterval(function () {
+  if (state !== 'detail') { cd = 45; return; }
+  cd = cd <= 1 ? 45 : cd - 1;
+  document.getElementById('cdNum').textContent = cd;
+  document.getElementById('cdBar').style.width = Math.round(cd / 45 * 100) + '%';
+  document.getElementById('tbState').textContent = '配置窗口 ' + cd + 's';
+}, 1000);
+
+/* password eye */
+function togglePw(btn) {
+  var i = document.getElementById('pwInput');
+  i.type = i.type === 'password' ? 'text' : 'password';
+}
+/* payload mask toggle */
+var masked = true;
+function toggleMask(btn) {
+  masked = !masked;
+  document.getElementById('payloadPre').textContent = masked ? MASKED : PLAIN;
+  btn.textContent = masked ? '显示明文' : '隐藏明文';
+}
+
+/* rescan: quick re-sweep */
+document.getElementById('rescanBtn').addEventListener('click', function () {
+  var b = this;
+  b.disabled = true; b.textContent = '扫描中…';
+  var dev = document.getElementById('devCount');
+  dev.textContent = '自动扫描中';
+  var rows = document.querySelectorAll('tr.dev');
+  rows.forEach(function (r) { r.classList.remove('in'); });
+  var bleN = 0, apN = 0;
+  rows.forEach(function (r, i) {
+    T(function () {
+      r.classList.add('in');
+      if (r.dataset.ch === 'ap') { apN++; chSet('ap', 'warn', '受限 · 枚举中（需管理员）', apN + ' 台'); }
+      else { bleN++; chSet('ble', 'ok', '扫描中 · 主动扫描', bleN + ' 台'); }
+    }, 250 + i * 180);
+  });
+  T(function () {
+    dev.textContent = '3 台可配置';
+    b.disabled = false; b.textContent = '⟳ 重新扫描';
+  }, 250 + rows.length * 180 + 250);
+});
+
+/* theme + lang toggles (topbar right + settings page) */
+function flipTheme() {
+  var r = document.documentElement;
+  var dark = r.dataset.theme === 'dark' ||
+    (!r.dataset.theme && matchMedia('(prefers-color-scheme: dark)').matches);
+  r.dataset.theme = dark ? 'light' : 'dark';
+}
+function flipLangBtn(btn) {
+  btn.textContent = (btn.textContent === 'EN') ? '中文' : (btn.textContent === '中文' ? 'EN' : (btn.textContent === '中文 / EN' ? 'EN / 中文' : '中文 / EN'));
+}
+document.getElementById('themeBtn').addEventListener('click', flipTheme);
+document.getElementById('langBtn').addEventListener('click', function () { flipLangBtn(this); });
+
+/* empty-state scan tick */
+var tick = 12;
+setInterval(function () {
+  if (state !== 'empty') { tick = 12; return; }
+  tick = tick >= 20 ? 12 : tick + 1;
+  document.getElementById('scanTick').textContent = tick + ' / 20 s · 设备进入配置模式后会自动出现在列表中';
+}, 1000);
+
+/* app launch: self-check animation, countdown, auto-enter scan */
+bootSeq();
+</script>
