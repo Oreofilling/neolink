@@ -109,8 +109,9 @@ final class UniversalCtGattChannel implements CtGattChannel {
       onStep?.call('open: D2C subscribed');
 
       // Windows 在连接时已自动协商 MTU，这里只是查询实际生效值；查询偶发
-      // 失败（GattSession 报错）不阻断连接：退守最小 MTU 23，传输层按更小
-      // 分片继续，重组端不受影响。Android 端是真请求，失败同样退守 23。
+      // 失败（GattSession 报错）不阻断连接：退守最小 MTU 23，本端发送按更小
+      // 分片继续。对端按链路实际 MTU 发送的分片可能大于本值——接收侧重组
+      // 器不校验非末片尺寸，不受影响（Android 端是真请求，失败同样退守 23）。
       int mtu;
       try {
         mtu = await UniversalBle.requestMtu(deviceId, targetMtu);

@@ -134,10 +134,9 @@ final class FragmentAssembler {
 
     final isFinal = index == _count! - 1;
     if (!isFinal) {
-      // 非末片必须恰好装满 payload_max（§5），过短即无法继续组包。
-      if (frame.length - kFragmentHeaderSize != payloadMax) {
-        return _reject('malformed_frame');
-      }
+      // 非末片尺寸不做硬校验：本地认知的 MTU 可能与链路实际协商值不一致
+      // （Windows 查询偶发退守 23，而对端按 256 发送），按结构规则（片序/
+      // count/总量上限）组包即可；「非末片装满 payload_max」只约束发送端。
       _expectedIndex = index + 1;
       return const Assembling();
     }

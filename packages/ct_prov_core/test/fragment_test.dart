@@ -73,6 +73,57 @@ void main() {
     expect(assembler.hasPartialAssembly, isTrue, reason: '${v.id} 组包悬挂等待末片');
   });
 
+  // 真机事故回归（NE101 + Windows，2026-11-04）：MTU 查询退守 23 的客户端，
+  // 收到对端按链路实际 MTU 256 切片的 608B capabilities 响应（248/248/112 三片）。
+  // 重组器不得因本地 MTU 认知不符而拒绝非末片。
+  test('MTU 认知不一致：按 256 切片的多帧包，23 的重组器必须照样组起来', () {
+    const jsonText = '{"id":2,"op":"communication.capabilities.get.result","ok":true,'
+        '"data":{"sections":[{"name":"wifi","kind":"network","configurable":true,'
+        '"scannable":true,"fields":["ssid","password"]},{"name":"cellular","kind":"network",'
+        '"configurable":true,"scannable":false,"fields":["apn","username","password","pin","auth"]},'
+        '{"name":"mqtt","kind":"service","configurable":true,"scannable":false,'
+        '"fields":["enable","host","port"]},{"name":"webhook","kind":"service",'
+        '"configurable":true,"scannable":false,"fields":["enable","url","header"]}],'
+        '"current":{"network":null}}}';
+    final frames = slicePacket(
+      mtu: 256,
+      kind: ProvPacketKind.response,
+      messageId: 5,
+      jsonText: jsonText,
+    );
+    expect(frames.length, greaterThan(1), reason: '该包必须为多片');
+
+    final assembler = FragmentAssembler(mtu: 23);
+    FeedResult? last;
+    for (var i = 0; i < frames.length; i++) {
+      last = assembler.feed(frames[i]);
+      if (i < frames.length - 1) {
+        expect(last, isA<Assembling>(), reason: '第 $i 片不得被拒绝');
+      }
+    }
+    final done = last!;
+    expect(done, isA<Assembled>(), reason: '末片必须完成组包');
+    expect((done as Assembled).packet.jsonText, jsonText);
+  });
+
+  test('MTU 认知不一致（反向）：按 23 切的小片流，247 的重组器也组得起来', () {
+    final frames = slicePacket(
+      mtu: 23,
+      kind: ProvPacketKind.request,
+      messageId: 9,
+      jsonText: '{"id":8,"op":"config.set","data":{"wifi":{"ssid":"CT-PROV-BENCH","password":"benchpass1"}}}',
+    );
+    expect(frames.length, greaterThan(1), reason: '该包必须为多片');
+
+    final assembler = FragmentAssembler(mtu: 247);
+    for (var i = 0; i < frames.length; i++) {
+      final r = assembler.feed(frames[i]);
+      if (i < frames.length - 1) {
+        expect(r, isA<Assembling>(), reason: '第 $i 片不得被拒绝');
+      }
+    }
+  });
+
   test('切片器：对合法向量重切结果与黄金帧逐字节一致', () {
     for (final v in tv.kFragmentVectors) {
       final exp = v.expect;
