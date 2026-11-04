@@ -32,6 +32,7 @@ class ProvisioningController extends ChangeNotifier {
     this.scanTimeout = const Duration(seconds: 20),
     this.ttl = const Duration(seconds: 12),
     this.selfCheckHold = const Duration(seconds: 5),
+    this.sweepInterval = const Duration(seconds: 3),
   }) : _probe = environmentProbe ?? DesktopEnvironmentProbe(),
        _source = discoverySource ?? BleDiscoverySource(),
        _pair =
@@ -59,6 +60,9 @@ class ProvisioningController extends ChangeNotifier {
 
   /// 自检通过后的自动进入扫描倒计时（0 = 立即进入，测试用）。
   final Duration selfCheckHold;
+
+  /// Sweep tick period for candidate expiry (shortened in tests).
+  final Duration sweepInterval;
 
   final DesktopEnvironmentProbe _probe;
   final DiscoverySource _source;
@@ -100,6 +104,15 @@ class ProvisioningController extends ChangeNotifier {
   bool _selfCheckHeld = false;
   Timer? _selfCheckTimer;
 
+  /// Per-channel walk (v6): after the report lands the page reveals the
+  /// channels one-by-one — this is the row currently being checked,
+  /// -1 = no walk in flight.
+  int selfCheckWalkIndex = -1;
+  Timer? _walkTimer;
+  Completer<void>? _walkCompleter;
+  static const Duration _walkStep = Duration(milliseconds: 600);
+  bool _disposed = false;
+
   /// 最近一次问题（连接/能力/下发失败与协议错误）。
   SessionProblem? lastProblem;
 
@@ -110,10 +123,21 @@ class ProvisioningController extends ChangeNotifier {
   DeviceInfoResult? deviceInfo;
   CapabilitiesResult? capabilities;
 
+  /// MAC-suffix highlight set by the QR guide (row-level focus marker; the
+  /// scan page paints the matching row, the guide itself stays UI-only).
+  String? get qrFocusSuffix => _qrFocusSuffix;
+  String? _qrFocusSuffix;
+
+  /// Completed provisioning runs (in-memory receipts for the history page;
+  /// persisted storage lands with a later milestone).
+  List<SessionReceipt> get sessionHistory => _sessionHistory;
+  final List<SessionReceipt> _sessionHistory = [];
+
   SessionPhase get phase => _machine.phase;
   List<DiscoveryCandidate> get candidates => _registry.snapshot;
 
-  /// 状态机相位 → 侧栏页面 id（自动跟随；用户也可点击已解锁页）。
+  /// 状态机相位 → 流程页 id（壳据此切换全页工作区；v6 交互：扫描/结果
+  /// 同页呈现，能力与表单合并为单一配置页）。
   String get pageForPhase => switch (_machine.phase) {
     SessionPhase.selfChecking => 'selfcheck',
     SessionPhase.scanning ||
@@ -125,37 +149,12 @@ class ProvisioningController extends ChangeNotifier {
     SessionPhase.readingCapabilities ||
     SessionPhase.connectionError ||
     SessionPhase.capabilityError => 'connect',
-    SessionPhase.choosingSections => 'caps',
+    SessionPhase.choosingSections ||
     SessionPhase.editingConfig ||
     SessionPhase.delivering ||
-    SessionPhase.operationError => 'deliver',
+    SessionPhase.operationError => 'config',
     SessionPhase.completed => 'result',
     SessionPhase.cleaning => 'scan',
-  };
-
-  /// 侧栏解锁：流程页随相位推进；表单/结果页随本次编辑会话开放，
-  /// 收尾清理后回到扫描即重新上锁。
-  bool isNavUnlocked(String pageId) => switch (pageId) {
-    'selfcheck' => true,
-    'scan' || 'empty' => _machine.phase != SessionPhase.selfChecking,
-    'guide' => false,
-    'connect' => switch (_machine.phase) {
-      SessionPhase.connecting ||
-      SessionPhase.readingCapabilities ||
-      SessionPhase.connectionError ||
-      SessionPhase.capabilityError => true,
-      _ => false,
-    },
-    'caps' => capabilities != null,
-    'deliver' => switch (_machine.phase) {
-      SessionPhase.editingConfig ||
-      SessionPhase.delivering ||
-      SessionPhase.operationError ||
-      SessionPhase.completed => true,
-      _ => false,
-    },
-    'result' => _machine.phase == SessionPhase.completed,
-    _ => false,
   };
 
   /// 环境自检（A2 修复：任意相位都可重新检测）。仍在自检相位时按结果驱动
@@ -166,55 +165,92 @@ class ProvisioningController extends ChangeNotifier {
     _selfChecking = true;
     _cancelSelfCheckHold();
     notifyListeners();
-    // finally guarantees the in-flight flag resets even if the probe layer
-    // ever throws — a stuck flag would silence the re-check button forever
-    // (round-3 A2).
+    // The outer finally guarantees the in-flight flag resets even if the
+    // probe layer ever throws — a stuck flag would silence the re-check
+    // button forever (round-3 A2). It also spans the per-channel walk so a
+    // walk cannot be re-entered while it plays.
     try {
-      environmentReport = await _probe.probe();
+      try {
+        environmentReport = await _probe.probe();
+      } finally {
+        selfCheckAt = DateTime.now();
+      }
+      final report = environmentReport!;
+      if (_machine.phase != SessionPhase.selfChecking) {
+        notifyListeners();
+        return;
+      }
+      if (!report.canProceed) {
+        _selfCheckHeld = false;
+        _machine.completeSelfCheck(
+          canProceed: false,
+          detail: report.channels
+              .where((entry) => entry.capability != ChannelCapability.available)
+              .map((entry) => '${entry.channel.name}: ${entry.reason}')
+              .join(', '),
+        );
+        notifyListeners();
+        return;
+      }
+      if (selfCheckHold == Duration.zero) {
+        _selfCheckHeld = false;
+        _machine.completeSelfCheck(canProceed: true);
+        notifyListeners();
+        return;
+      }
+      // v6 walk: reveal the channels one-by-one before arming the countdown;
+      // await it so callers (and tests) observe a settled state afterwards.
+      await _walkChannels(report.channels.length);
+      // The walk can be cut short by a stay-click or a scan-now jump — only
+      // arm the countdown while the page is still holding for it.
+      if (_disposed) return;
+      if (_selfCheckHeld || _machine.phase != SessionPhase.selfChecking) {
+        notifyListeners();
+        return;
+      }
+      selfCheckCountdown = selfCheckHold.inSeconds;
+      _selfCheckHeld = false;
+      notifyListeners();
+      _selfCheckTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+        final left = (selfCheckCountdown ?? 0) - 1;
+        if (left <= 0) {
+          startScanNow();
+        } else {
+          selfCheckCountdown = left;
+          notifyListeners();
+        }
+      });
     } finally {
       _selfChecking = false;
-      selfCheckAt = DateTime.now();
+      if (!_disposed) notifyListeners();
     }
-    final report = environmentReport!;
-    if (_machine.phase != SessionPhase.selfChecking) {
-      notifyListeners();
-      return;
-    }
-    if (!report.canProceed) {
-      _selfCheckHeld = false;
-      _machine.completeSelfCheck(
-        canProceed: false,
-        detail: report.channels
-            .where((entry) => entry.capability != ChannelCapability.available)
-            .map((entry) => '${entry.channel.name}: ${entry.reason}')
-            .join(', '),
-      );
-      notifyListeners();
-      return;
-    }
-    if (selfCheckHold == Duration.zero) {
-      _selfCheckHeld = false;
-      _machine.completeSelfCheck(canProceed: true);
-      notifyListeners();
-      return;
-    }
-    selfCheckCountdown = selfCheckHold.inSeconds;
-    _selfCheckHeld = false;
+  }
+
+  /// Plays the one-by-one channel reveal (v6). Resolves when every row has
+  /// been revealed — or early when the walk is cancelled (stay / scan-now /
+  /// re-entry), so callers must re-check state after the await.
+  Future<void> _walkChannels(int channelCount) async {
+    if (channelCount <= 0) return;
+    selfCheckWalkIndex = 0;
     notifyListeners();
-    _selfCheckTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      final left = (selfCheckCountdown ?? 0) - 1;
-      if (left <= 0) {
-        startScanNow();
+    final walked = Completer<void>();
+    _walkCompleter = walked;
+    _walkTimer = Timer.periodic(_walkStep, (_) {
+      final next = selfCheckWalkIndex + 1;
+      if (next >= channelCount) {
+        _cancelChannelWalk();
       } else {
-        selfCheckCountdown = left;
+        selfCheckWalkIndex = next;
         notifyListeners();
       }
     });
+    await walked.future;
   }
 
-  /// 停留自检页：取消倒计时（A1：留时间检查环境与通道明细）。
+  /// 停留自检页：取消倒计时与通道走查（A1：留时间检查环境与通道明细；
+  /// v6：走查期间点击同样立即停留，通道全部展开为最终结果）。
   void stayOnSelfCheck() {
-    if (selfCheckCountdown == null) return;
+    if (selfCheckCountdown == null && selfCheckWalkIndex < 0) return;
     _cancelSelfCheckHold();
     _selfCheckHeld = true;
     notifyListeners();
@@ -233,6 +269,16 @@ class ProvisioningController extends ChangeNotifier {
     _selfCheckTimer?.cancel();
     _selfCheckTimer = null;
     selfCheckCountdown = null;
+    _cancelChannelWalk();
+  }
+
+  void _cancelChannelWalk() {
+    _walkTimer?.cancel();
+    _walkTimer = null;
+    selfCheckWalkIndex = -1;
+    final walked = _walkCompleter;
+    _walkCompleter = null;
+    if (walked != null && !walked.isCompleted) walked.complete();
   }
 
   /// 从候选列表选定设备：进入连接链（配对 → 通道 → 会话 → 读能力）。
@@ -303,6 +349,27 @@ class ProvisioningController extends ChangeNotifier {
       return;
     }
     _machine.switchCandidate();
+    notifyListeners();
+  }
+
+  /// 连接/能力失败后原候选立即重试（NE101 断开后仍在配置模式，重试链
+  /// 与首次选择完全一致）。
+  Future<void> retryConnect() async {
+    final candidate = selectedCandidate;
+    if (candidate == null) return;
+    if (_machine.phase != SessionPhase.connectionError &&
+        _machine.phase != SessionPhase.capabilityError) {
+      return;
+    }
+    _machine.switchCandidate();
+    await selectCandidate(candidate);
+  }
+
+  /// QR guide: highlight the row whose MAC suffix was entered/parsed.
+  void focusQrCandidate(String suffix) {
+    final normalized = suffix.toUpperCase();
+    if (_qrFocusSuffix == normalized) return;
+    _qrFocusSuffix = normalized;
     notifyListeners();
   }
 
@@ -484,6 +551,17 @@ class ProvisioningController extends ChangeNotifier {
     try {
       deliveryResult = await session.setConfig(payload.payload);
       _machine.deliveryStored();
+      // Receipt for the history page: captured at the moment the device
+      // confirmed persistence (before the session is closed).
+      _sessionHistory.add(
+        SessionReceipt(
+          deviceName: deviceInfo?.deviceName ?? '',
+          serialNumber: deviceInfo?.serialNumber ?? '',
+          model: deviceInfo?.model ?? '',
+          sections: List<String>.unmodifiable(deliveryResult!.stored),
+          appliedAt: DateTime.now(),
+        ),
+      );
     } on ProvSessionException catch (error) {
       deliveryResult = null;
       _machine.failOperation(error.reason, error.message);
@@ -623,10 +701,10 @@ class ProvisioningController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// 候选清扫计时器随相位：扫描/结果期保持运转（结果页条目按 lastSeen
-  /// 打时效标注并持续刷新显示），其余相位停止。扫描相位仍执行超时淘汰
-  /// （设备仍在广播会重新入表）；结果相位是停源后的冻结快照，只重绘
-  /// 不移除（C5：断电设备显示「信号消失」而非凭空消失）。
+  /// 候选清扫计时器随相位：扫描/结果期保持运转。v6 连续扫描语义下两相
+  /// 位都做超时淘汰（设备仍在广播会重新入表）；结果相位条目全部过期时
+  /// 自动重开扫描窗口（cleanup → scanning），列表不会停在空快照上；时
+  /// 龄标注的重绘也由本计时器驱动。
   void _syncSweepTimer(SessionPhase phase) {
     final active =
         phase == SessionPhase.scanning || phase == SessionPhase.resultsAvailable;
@@ -636,30 +714,35 @@ class ProvisioningController extends ChangeNotifier {
       return;
     }
     if (_sweepTimer != null) return;
-    _sweepTimer = Timer.periodic(const Duration(seconds: 3), (_) {
+    _sweepTimer = Timer.periodic(sweepInterval, (_) {
       if (_machine.phase == SessionPhase.scanning) {
         // 候选超时刷新：超过 ttl 未再见到即移除（设备仍在广播会重新入表）。
         if (_registry.sweepExpired(DateTime.now(), ttl: ttl).isNotEmpty) {
           notifyListeners();
         }
       } else if (_machine.phase == SessionPhase.resultsAvailable) {
-        // 冻结快照的时效标注需要周期重绘（时钟推进，条目保留）。
+        // 连续扫描：结果期同样按 ttl 淘汰；全部淘汰后重开扫描窗口。
+        _registry.sweepExpired(DateTime.now(), ttl: ttl);
+        if (_registry.snapshot.isEmpty) {
+          unawaited(rescan());
+          return;
+        }
         notifyListeners();
       }
     });
   }
 
-  /// 进入扫描相位：新任务用新注册表；首个候选即离开扫描相位并停源。
+  /// 进入扫描相位：新任务用新注册表；连续扫描——出候选不停源，射频
+  /// 持续静默监听，设备上线/下线直接反映在列表里（停源只发生在选定
+  /// 候选、超时进入空态或会话清理时）。
   void _startScan() {
     _stopScanTasks();
     _registry = DiscoveryRegistry();
+    _qrFocusSuffix = null;
     _candidateSub = _source.candidates.listen((candidate) {
       _registry.absorb(candidate);
       if (_machine.phase == SessionPhase.scanning) {
         _machine.reportCandidate();
-        // 出候选即停源（含扫描定时器）：用户挑选期间射频静默；选定
-        // 候选时机器钩子会再停一次，停源幂等无副作用。
-        unawaited(_stopSources());
       }
       notifyListeners();
     });
@@ -721,6 +804,7 @@ class ProvisioningController extends ChangeNotifier {
 
   @override
   void dispose() {
+    _disposed = true;
     _stopScanTasks();
     _sweepTimer?.cancel();
     _sweepTimer = null;
@@ -731,4 +815,31 @@ class ProvisioningController extends ChangeNotifier {
     unawaited(_machine.dispose());
     super.dispose();
   }
+}
+
+/// One finished provisioning run — the receipt the history page renders.
+/// Captured when the device confirms persistence (config.set stored).
+final class SessionReceipt {
+  const SessionReceipt({
+    required this.deviceName,
+    required this.serialNumber,
+    required this.model,
+    required this.sections,
+    required this.appliedAt,
+  });
+
+  /// device.info device_name (e.g. "NE101-AABBCC").
+  final String deviceName;
+
+  /// device.info serial_number.
+  final String serialNumber;
+
+  /// device.info model.
+  final String model;
+
+  /// Section names the device reported as stored, in delivery order.
+  final List<String> sections;
+
+  /// Local wall-clock time of the confirmed delivery.
+  final DateTime appliedAt;
 }

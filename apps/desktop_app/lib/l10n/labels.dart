@@ -24,7 +24,22 @@ extension NavL10n on AppLocalizations {
         'svc' => navSvc,
         'deliver' => navDeliver,
         'result' => navResult,
+        'history' => navHistory,
+        'settings' => navSettings,
         _ => id,
+      };
+
+  /// Product-facing section name (wire names stay visible in the mono field
+  /// lines so the protocol vocabulary is not hidden from engineers).
+  String sectionLabel(String name) => switch (name) {
+        'wifi' => secWifi,
+        'cellular' => secCellular,
+        'halow' => secHalow,
+        'ethernet' => secEthernet,
+        'comm' => secComm,
+        'mqtt' => secMqtt,
+        'webhook' => secWebhook,
+        _ => name,
       };
 
   /// Form field label by wire field name (CT_CONFIG_SCHEMA.md).

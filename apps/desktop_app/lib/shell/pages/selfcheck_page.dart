@@ -7,12 +7,12 @@ import '../../l10n/app_localizations.dart';
 import '../../l10n/channel_labels.dart';
 import '../../provisioning/provisioning_controller.dart';
 
-/// 环境自检页（M2-4）：进入即自动执行，三路通道逐行给出可用性结论；
-/// 「AP 枚举受限」呈现为能力限制说明而非空列表；全部不可用时可修复
-/// 后重新检测（机器停留自检相位）。
-///
-/// M3b：通过后不再立刻跳扫描——倒计时 N 秒自动进入，期间可「停留本页」
-/// 检查通道明细或「立即扫描」（A1）；重新检测在任意相位都可点（A2）。
+/// Boot self-check page (v6): the app opens here — a centered card walks the
+/// three discovery channels, then counts down into the scan automatically.
+/// Any click on the page cancels the countdown (v6: click-to-stay — the old
+/// stay button is gone); the only persistent control is the re-check icon in
+/// the card's top-right corner. Later re-checks refresh the report from the
+/// settings page's adapter rows too.
 class SelfcheckPage extends StatefulWidget {
   const SelfcheckPage({super.key, required this.controller});
 
@@ -26,7 +26,8 @@ class _SelfcheckPageState extends State<SelfcheckPage> {
   @override
   void initState() {
     super.initState();
-    // 首帧后自动执行自检（首帧内调用 setState 会撞构建周期）。
+    // Run the check after the first frame (setState inside the build cycle
+    // would collide with widget construction).
     WidgetsBinding.instance.addPostFrameCallback((_) {
       widget.controller.runSelfCheck();
     });
@@ -41,17 +42,19 @@ class _SelfcheckPageState extends State<SelfcheckPage> {
     return ListenableBuilder(
       listenable: controller,
       builder: (context, _) {
-        // report 必须在 builder 内读取：壳只在切页时重建本页组件，
-        // 自检相位内的通知只走 ListenableBuilder，外层捕获会停留在 null。
+        // The report must be read inside the builder: the shell only
+        // rebuilds this page on phase changes, in-phase notifications flow
+        // through ListenableBuilder alone.
         final report = controller.environmentReport;
         final counting = controller.selfCheckCountdown;
         final held = controller.selfCheckHeld;
-        // 自检相位之外回访本页：只读报告，不再声明「自动进入扫描」。
+        // v6 walk: after the report lands the rows are revealed one-by-one —
+        // the row at selfCheckWalkIndex is mid-check, later rows stay queued.
+        final walkIndex = controller.selfCheckWalkIndex;
+        final walking = walkIndex >= 0;
         final idle = controller.phase != SessionPhase.selfChecking;
         // Round-3 A2: every check gives visible feedback — the running label
-        // while in flight (a previous report keeps the rows visible), and a
-        // last-checked stamp afterwards, since unchanged rows otherwise look
-        // like the button did nothing.
+        // while in flight, and a last-checked stamp afterwards.
         final busy = controller.selfChecking;
         final status = busy || report == null
             ? l.selfcheckRunning
@@ -60,141 +63,214 @@ class _SelfcheckPageState extends State<SelfcheckPage> {
             : held
             ? l.selfcheckHeld
             : (report.canProceed ? l.selfcheckReady : l.selfcheckBlocked);
-        return SingleChildScrollView(
-          padding: const EdgeInsets.all(20),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 760),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  l.navSelfcheck,
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Text(status, style: TextStyle(fontSize: 12, color: c.mutedForeground)),
-                const SizedBox(height: 16),
-                NLCard(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      if (report == null)
-                        ...List.generate(
-                          3,
-                          (index) => const Padding(
-                            padding: EdgeInsets.only(bottom: 12),
-                            child: NLSkeleton(width: 320, height: 14),
+        return GestureDetector(
+          // Click-to-stay (v6): any tap on the page — empty space included —
+          // stops the auto-jump, during the walk and the countdown alike.
+          // Real buttons still win the gesture arena, so this only fires on
+          // non-interactive areas.
+          behavior: HitTestBehavior.opaque,
+          onTap: () {
+            if (controller.selfCheckCountdown != null ||
+                controller.selfCheckWalkIndex >= 0) {
+              controller.stayOnSelfCheck();
+            }
+          },
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(24, 28, 24, 20),
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 520),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const NLLogo(size: 26),
+                        const SizedBox(width: 9),
+                        const Text(
+                          'NeoLink',
+                          style: TextStyle(
+                            fontSize: 17,
+                            fontWeight: FontWeight.w800,
                           ),
-                        )
-                      else
-                        for (final entry in report.channels)
-                          _channelRow(c, l, entry),
-                      const SizedBox(height: 16),
-                      // Round-2 A1: a prominent countdown strip — big digits
-                      // plus a bar that drains each second, sitting right
-                      // above the action buttons.
-                      if (counting != null) ...[
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.end,
+                        ),
+                        const SizedBox(width: 10),
+                        Text(
+                          l.brandSubtitle,
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: c.mutedForeground,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+                    NLCard(
+                      child: Padding(
+                        padding: const EdgeInsets.all(20),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(
-                              '$counting',
-                              style: const TextStyle(
-                                fontSize: 34,
-                                fontWeight: FontWeight.w800,
-                                height: 1,
-                              ),
+                            // Header: title/status on the left, the re-check
+                            // icon pinned to the card's top-right corner —
+                            // the only control that persists across states.
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        l.navSelfcheck,
+                                        style: const TextStyle(
+                                          fontSize: 18,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 6),
+                                      Text(
+                                        status,
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: c.mutedForeground,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                _recheckIcon(c, l),
+                              ],
                             ),
-                            const SizedBox(width: 8),
-                            Padding(
-                              padding: const EdgeInsets.only(bottom: 3),
-                              child: Text(
-                                l.selfcheckCountdownHint,
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: c.mutedForeground,
+                            const SizedBox(height: 12),
+                            if (report == null)
+                              ...List.generate(
+                                3,
+                                (index) => const Padding(
+                                  padding: EdgeInsets.only(bottom: 12),
+                                  child: NLSkeleton(width: 320, height: 14),
+                                ),
+                              )
+                            else
+                              for (var i = 0; i < report.channels.length; i++)
+                                _channelRow(
+                                  c,
+                                  l,
+                                  report.channels[i],
+                                  index: i,
+                                  walkIndex: walkIndex,
+                                ),
+                            const SizedBox(height: 16),
+                            // Round-2 A1: big countdown digits plus a draining
+                            // bar sitting right above the action buttons.
+                            if (counting != null) ...[
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.end,
+                                children: [
+                                  Text(
+                                    '$counting',
+                                    style: const TextStyle(
+                                      fontSize: 34,
+                                      fontWeight: FontWeight.w800,
+                                      height: 1,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Padding(
+                                    padding: const EdgeInsets.only(bottom: 3),
+                                    child: Text(
+                                      l.selfcheckCountdownHint,
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: c.mutedForeground,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              Container(
+                                height: 6,
+                                decoration: BoxDecoration(
+                                  color: c.muted,
+                                  borderRadius: BorderRadius.circular(3),
+                                ),
+                                clipBehavior: Clip.antiAlias,
+                                alignment: Alignment.centerLeft,
+                                child: AnimatedFractionallySizedBox(
+                                  duration: const Duration(milliseconds: 900),
+                                  curve: Curves.linear,
+                                  widthFactor:
+                                      (counting /
+                                              controller
+                                                  .selfCheckHold
+                                                  .inSeconds)
+                                          .clamp(0.0, 1.0),
+                                  child: ColoredBox(
+                                    color: c.foreground,
+                                    child: const SizedBox.expand(),
+                                  ),
                                 ),
                               ),
-                            ),
+                              const SizedBox(height: 12),
+                            ],
+                            // v6: the click-to-stop hint rides along with both
+                            // the walk and the countdown.
+                            if (walking || counting != null)
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 12),
+                                child: Row(
+                                  children: [
+                                    Icon(
+                                      Icons.touch_app,
+                                      size: 13,
+                                      color: c.mutedForeground,
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Flexible(
+                                      child: Text(
+                                        l.selfcheckClickHold,
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          color: c.mutedForeground,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            // Click anywhere to hold the page (v6); the only
+                            // button left is the jump-now override.
+                            if (counting != null || held)
+                              NLButton(
+                                label: l.btnScanNow,
+                                size: NLButtonSize.sm,
+                                onPressed: controller.startScanNow,
+                              ),
+                            if (controller.selfCheckAt != null)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 8),
+                                child: Text(
+                                  l.selfcheckLastRun(
+                                    _clock(controller.selfCheckAt!),
+                                  ),
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: c.mutedForeground,
+                                    fontFamily: 'JetBrains Mono',
+                                  ),
+                                ),
+                              ),
                           ],
                         ),
-                        const SizedBox(height: 10),
-                        Container(
-                          height: 6,
-                          decoration: BoxDecoration(
-                            color: c.muted,
-                            borderRadius: BorderRadius.circular(3),
-                          ),
-                          clipBehavior: Clip.antiAlias,
-                          alignment: Alignment.centerLeft,
-                          child: AnimatedFractionallySizedBox(
-                            duration: const Duration(milliseconds: 900),
-                            curve: Curves.linear,
-                            widthFactor:
-                                (counting /
-                                        controller.selfCheckHold.inSeconds)
-                                    .clamp(0.0, 1.0),
-                            child: ColoredBox(
-                              color: c.foreground,
-                              child: const SizedBox.expand(),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                      ],
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: [
-                          NLButton(
-                            label: l.btnRecheck,
-                            variant: NLButtonVariant.secondary,
-                            size: NLButtonSize.sm,
-                            onPressed: controller.runSelfCheck,
-                          ),
-                          // A1: the pass state is readable before the jump —
-                          // stay here, or enter the scan immediately.
-                          if (counting != null) ...[
-                            NLButton(
-                              label: l.btnStay,
-                              variant: NLButtonVariant.secondary,
-                              size: NLButtonSize.sm,
-                              onPressed: controller.stayOnSelfCheck,
-                            ),
-                            NLButton(
-                              label: l.btnScanNow,
-                              size: NLButtonSize.sm,
-                              onPressed: controller.startScanNow,
-                            ),
-                          ] else if (held)
-                            NLButton(
-                              label: l.btnScanNow,
-                              size: NLButtonSize.sm,
-                              onPressed: controller.startScanNow,
-                            ),
-                        ],
                       ),
-                      if (controller.selfCheckAt != null)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 10),
-                          child: Text(
-                            l.selfcheckLastRun(
-                              _clock(controller.selfCheckAt!),
-                            ),
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: c.mutedForeground,
-                              fontFamily: 'JetBrains Mono',
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
-              ],
+              ),
             ),
           ),
         );
@@ -209,54 +285,131 @@ class _SelfcheckPageState extends State<SelfcheckPage> {
     return '${two(at.hour)}:${two(at.minute)}:${two(at.second)}';
   }
 
-  Widget _channelRow(NLColors c, AppLocalizations l, ChannelReadiness entry) {
+  /// Icon-only re-check control for the card's top-right corner (v6) — the
+  /// tooltip carries the full action name; disabled while a check runs.
+  Widget _recheckIcon(NLColors c, AppLocalizations l) {
+    final controller = widget.controller;
+    return IconButton(
+      tooltip: l.btnRecheck,
+      icon: Icon(Icons.refresh, size: 18, color: c.mutedForeground),
+      onPressed: controller.selfChecking ? null : controller.runSelfCheck,
+      visualDensity: VisualDensity.compact,
+    );
+  }
+
+  /// One channel row. During the v6 walk (walkIndex >= 0) the row at
+  /// [index] == walkIndex is mid-check (spinner + checking badge), rows after
+  /// it stay queued (dimmed, verdict hidden); reason/detail only render once
+  /// a row has settled.
+  Widget _channelRow(
+    NLColors c,
+    AppLocalizations l,
+    ChannelReadiness entry, {
+    int index = -1,
+    int walkIndex = -1,
+  }) {
     final variant = switch (entry.capability) {
       ChannelCapability.available => NLBadgeVariant.success,
       ChannelCapability.limited => NLBadgeVariant.warning,
       ChannelCapability.unavailable => NLBadgeVariant.error,
     };
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 14),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Text(
-                l.channelLabel(entry.channel),
-                style: const TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
+    final isWalking = walkIndex >= 0;
+    final isActive = isWalking && index == walkIndex;
+    final isQueued = isWalking && index > walkIndex;
+    return Opacity(
+      opacity: isQueued ? 0.45 : 1,
+      child: Padding(
+        padding: const EdgeInsets.only(bottom: 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                if (isActive)
+                  SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: c.info,
+                    ),
+                  )
+                else if (isQueued)
+                  Icon(
+                    Icons.hourglass_empty,
+                    size: 18,
+                    color: c.mutedForeground,
+                  )
+                else
+                  _channelIcon(c, entry.capability),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    l.channelLabel(entry.channel),
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
                 ),
-              ),
-              const Spacer(),
-              NLBadge(
-                label: l.capabilityLabel(entry.capability),
-                variant: variant,
-              ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          Text(
-            l.reasonLabel(entry.reason),
-            style: TextStyle(fontSize: 12, color: c.mutedForeground),
-          ),
-          if (entry.detail != null && entry.reason != 'ready')
-            Padding(
-              padding: const EdgeInsets.only(top: 2),
-              child: Text(
-                entry.detail!,
-                style: TextStyle(
-                  fontSize: 10,
-                  fontFamily: 'JetBrains Mono',
-                  color: c.mutedForeground,
-                ),
-              ),
+                if (isActive)
+                  NLBadge(
+                    label: l.badgeChecking,
+                    variant: NLBadgeVariant.info,
+                  )
+                else if (isQueued)
+                  NLBadge(label: l.selfcheckQueued)
+                else
+                  NLBadge(
+                    label: l.capabilityLabel(entry.capability),
+                    variant: variant,
+                  ),
+              ],
             ),
-          const SizedBox(height: 6),
-          Divider(height: 1, thickness: 1, color: c.border),
-        ],
+            if (!isWalking) ...[
+              const SizedBox(height: 4),
+              Text(
+                l.reasonLabel(entry.reason),
+                style: TextStyle(fontSize: 12, color: c.mutedForeground),
+              ),
+              if (entry.detail != null && entry.reason != 'ready')
+                Padding(
+                  padding: const EdgeInsets.only(top: 2),
+                  child: Text(
+                    entry.detail!,
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontFamily: 'JetBrains Mono',
+                      color: c.mutedForeground,
+                    ),
+                  ),
+                ),
+            ],
+            const SizedBox(height: 8),
+            Divider(height: 1, thickness: 1, color: c.border),
+          ],
+        ),
       ),
     );
+  }
+
+  Widget _channelIcon(NLColors c, ChannelCapability capability) {
+    return switch (capability) {
+      ChannelCapability.available => Icon(
+        Icons.check_circle,
+        size: 18,
+        color: c.success,
+      ),
+      ChannelCapability.limited => Icon(
+        Icons.error_outline,
+        size: 18,
+        color: c.warning,
+      ),
+      ChannelCapability.unavailable => Icon(
+        Icons.cancel_outlined,
+        size: 18,
+        color: c.destructive,
+      ),
+    };
   }
 }

@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:neolink_ui/neolink_ui.dart';
 
 import '../../l10n/app_localizations.dart';
+import '../../l10n/labels.dart';
 import '../../provisioning/provisioning_controller.dart';
 
 class ResultPage extends StatelessWidget {
@@ -22,6 +23,7 @@ class ResultPage extends StatelessWidget {
       listenable: controller,
       builder: (context, _) {
         final result = controller.deliveryResult;
+        final receipt = controller.sessionHistory.lastOrNull;
         return SingleChildScrollView(
           padding: const EdgeInsets.all(20),
           child: ConstrainedBox(
@@ -79,7 +81,10 @@ class ResultPage extends StatelessWidget {
                                     color: c.success,
                                   ),
                                 ),
-                                Text(name, style: const TextStyle(fontSize: 13)),
+                                Text(
+                                  l.sectionLabel(name),
+                                  style: const TextStyle(fontSize: 13),
+                                ),
                               ],
                             ),
                           ),
@@ -91,6 +96,21 @@ class ResultPage extends StatelessWidget {
                             color: c.mutedForeground,
                           ),
                         ),
+                        // The receipt just appended by submit() — same stamp
+                        // the history page lists.
+                        if (receipt != null) ...[
+                          const SizedBox(height: 8),
+                          Divider(height: 1, thickness: 1, color: c.border),
+                          const SizedBox(height: 8),
+                          Text(
+                            _stamp(receipt.appliedAt),
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontFamily: 'JetBrains Mono',
+                              color: c.mutedForeground,
+                            ),
+                          ),
+                        ],
                       ],
                     ),
                   ),
@@ -114,4 +134,9 @@ class ResultPage extends StatelessWidget {
     'reboot' => l.resultApplyReboot,
     _ => l.resultApplyUnknown,
   };
+
+  static String _stamp(DateTime at) {
+    String two(int value) => value.toString().padLeft(2, '0');
+    return '${two(at.month)}-${two(at.day)} ${two(at.hour)}:${two(at.minute)}';
+  }
 }

@@ -32,7 +32,16 @@ class NLBadge extends StatelessWidget {
           Container(width: 6, height: 6, decoration: BoxDecoration(color: fg, shape: BoxShape.circle)),
           const SizedBox(width: 5),
         ],
-        Text(label, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: fg)),
+        // Width-constrained parents (topbar Flexible) ellipsize instead of
+        // overflowing.
+        Flexible(
+          child: Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: fg),
+          ),
+        ),
       ]),
     );
   }

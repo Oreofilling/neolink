@@ -25,24 +25,28 @@ void main() {
     await tester.pumpWidget(
       NeoLinkApp(controller: controller, settings: SettingsStore.none()),
     );
-    expect(find.text('NeoLink'), findsOneWidget);
+    // v6 品牌行出现两处：侧栏 + 自检页卡片。
+    expect(find.text('NeoLink'), findsNWidgets(2));
     expect(find.text('环境自检'), findsWidgets);
     await tester.pump(); // 自检完成（阻塞态停留）
 
     await tester.tap(find.text('扫描设备'));
     await tester.pump();
 
-    await tester.tap(find.text('EN'));
+    // v6: the toggle states the CURRENT language — zh UI shows 中文; tapping
+    // swaps to English (label flips to EN).
+    await tester.tap(find.text('中文'));
     await tester.pump();
     expect(find.text('Environment self-check'), findsWidgets);
     expect(find.text('Scan devices'), findsWidgets);
     expect(find.text('未发现设备'), findsNothing);
+    expect(find.text('EN'), findsOneWidget);
 
     await tester.tap(find.text('Dark'));
     await tester.pump();
     expect(find.text('Light'), findsOneWidget);
 
-    await tester.tap(find.text('中文'));
+    await tester.tap(find.text('EN'));
     await tester.pump();
     expect(find.text('环境自检'), findsWidgets);
   });

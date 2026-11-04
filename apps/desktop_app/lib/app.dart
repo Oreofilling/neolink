@@ -74,7 +74,10 @@ class _NeoLinkAppState extends State<NeoLinkApp> {
           );
           _persist();
         },
-        langLabel: _effectiveLocale.languageCode == 'zh' ? 'EN' : '中文',
+        // v6: the button shows the CURRENT interface language (state, not
+        // target — a "中文" label while the UI is English reads as a bug);
+        // tapping still swaps zh/en. The tooltip carries the action.
+        langLabel: _effectiveLocale.languageCode == 'zh' ? '中文' : 'EN',
         onToggleLocale: () {
           setState(
             () => _locale = _effectiveLocale.languageCode == 'zh'

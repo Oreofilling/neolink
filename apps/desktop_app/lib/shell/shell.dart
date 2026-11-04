@@ -1,40 +1,25 @@
+import 'package:discovery_domain/discovery_domain.dart';
 import 'package:flutter/material.dart';
 import 'package:neolink_ui/neolink_ui.dart';
 import 'package:provisioning_session/provisioning_session.dart';
 
 import '../l10n/app_localizations.dart';
-import '../l10n/labels.dart';
 import '../provisioning/provisioning_controller.dart';
-import 'pages.dart';
-import 'pages/caps_page.dart';
+import 'pages/config_page.dart';
 import 'pages/connect_page.dart';
 import 'pages/empty_page.dart';
-import 'pages/form_page.dart';
+import 'pages/history_page.dart';
+import 'pages/qr_guide_page.dart';
 import 'pages/result_page.dart';
 import 'pages/scan_page.dart';
 import 'pages/selfcheck_page.dart';
+import 'pages/settings_page.dart';
 
-final class _NavItem {
-  const _NavItem(this.id);
-  final String id;
-}
-
-const _groups = <(String, List<_NavItem>)>[
-  (
-    'navGroupFlow',
-    [
-      _NavItem('selfcheck'),
-      _NavItem('scan'),
-      _NavItem('empty'),
-      _NavItem('guide'),
-      _NavItem('connect'),
-      _NavItem('caps'),
-    ],
-  ),
-  ('navGroupConfig', [_NavItem('wifi'), _NavItem('cat1'), _NavItem('svc')]),
-  ('navGroupDeliver', [_NavItem('deliver'), _NavItem('result')]),
-];
-
+/// v6 shell: 3-destination sidebar (scan / history / settings) + topbar
+/// (BLE adapter badge + session phase badge on the left, lang/theme on the
+/// right). The scan destination hosts the phase-driven flow pages as one
+/// full-page workspace; the QR guide is a shell-level page so the session
+/// machine never needs guide phases for a UI-only walkthrough.
 class AppShell extends StatefulWidget {
   const AppShell({
     super.key,
@@ -56,35 +41,51 @@ class AppShell extends StatefulWidget {
 }
 
 class _AppShellState extends State<AppShell> {
-  String _page = 'selfcheck';
+  /// 'flow' (phase-driven workspace), 'qrguide', 'history', 'settings'.
+  String _page = 'flow';
   SessionPhase _phase = SessionPhase.selfChecking;
+
+  ProvisioningController get controller => widget.controller;
 
   @override
   void initState() {
     super.initState();
     // Phase-driven page following: jump only when the session phase actually
-    // migrates (candidate found, link advancing). Plain refresh notifications
-    // (scan sweep ticks, staleness re-render, recheck) must not drag the user
-    // back to the phase page — round-2 A2 found the selfcheck page became
-    // unreachable mid-scan because every notify reset the manual selection.
-    _phase = widget.controller.phase;
-    widget.controller.addListener(_onControllerChanged);
+    // migrates. Plain refresh notifications (sweep ticks, staleness repaint,
+    // recheck) must not drag the user off history/settings — round-2 A2.
+    _phase = controller.phase;
+    controller.addListener(_onControllerChanged);
   }
 
   @override
   void dispose() {
-    widget.controller.removeListener(_onControllerChanged);
+    controller.removeListener(_onControllerChanged);
     super.dispose();
   }
 
   void _onControllerChanged() {
-    final phase = widget.controller.phase;
-    // Same phase = plain refresh: keep the user's manual page selection.
+    final phase = controller.phase;
     if (phase == _phase) return;
     _phase = phase;
-    final target = widget.controller.pageForPhase;
-    if (target != _page) setState(() => _page = target);
+    // The guide belongs to the scan family; once the session moves past it
+    // (candidate selected, link advancing) snap back to the flow workspace.
+    final guideOrphan = _page == 'qrguide' && !_isScanFamilyPhase(phase);
+    if (_page == 'flow' || guideOrphan) {
+      setState(() {
+        if (guideOrphan) _page = 'flow';
+      });
+    }
   }
+
+  static bool _isScanFamilyPhase(SessionPhase phase) => switch (phase) {
+    SessionPhase.selfChecking ||
+    SessionPhase.scanning ||
+    SessionPhase.resultsAvailable ||
+    SessionPhase.scanEmpty ||
+    SessionPhase.guideScanning ||
+    SessionPhase.showingGuide => true,
+    _ => false,
+  };
 
   @override
   Widget build(BuildContext context) {
@@ -109,39 +110,53 @@ class _AppShellState extends State<AppShell> {
     );
   }
 
-  /// Phase-driven pages; guide and per-section config pages stay behind
-  /// later milestones.
+  /// Phase-driven flow workspace under the scan destination.
   Widget _content() {
     switch (_page) {
-      case 'selfcheck':
-        return SelfcheckPage(controller: widget.controller);
-      case 'scan':
-        return ScanPage(controller: widget.controller);
-      case 'empty':
-        return EmptyPage(controller: widget.controller);
-      case 'connect':
-        return ConnectPage(controller: widget.controller);
-      case 'caps':
-        return CapsPage(controller: widget.controller);
-      case 'deliver':
-        return FormPage(controller: widget.controller);
-      case 'result':
-        return ResultPage(controller: widget.controller);
+      case 'flow':
+        return switch (controller.pageForPhase) {
+          'selfcheck' => SelfcheckPage(controller: controller),
+          'empty' => EmptyPage(
+            controller: controller,
+            onOpenGuide: _openGuide,
+          ),
+          'connect' => ConnectPage(controller: controller),
+          'config' => ConfigPage(controller: controller),
+          'result' => ResultPage(controller: controller),
+          _ => ScanPage(controller: controller, onOpenGuide: _openGuide),
+        };
+      case 'qrguide':
+        return QrGuidePage(
+          controller: controller,
+          onExit: () => setState(() => _page = 'flow'),
+        );
+      case 'history':
+        return HistoryPage(controller: controller);
+      case 'settings':
+        return SettingsPage(
+          controller: controller,
+          dark: widget.dark,
+          langLabel: widget.langLabel,
+          onToggleTheme: widget.onToggleTheme,
+          onToggleLocale: widget.onToggleLocale,
+        );
       default:
-        return PlaceholderPage(pageId: _page);
+        return ScanPage(controller: controller, onOpenGuide: _openGuide);
     }
   }
+
+  void _openGuide() => setState(() => _page = 'qrguide');
 
   Widget _sidebar(NLColors c) {
     final l = AppLocalizations.of(context)!;
     return Container(
-      width: 232,
+      width: 200,
       color: c.card,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 18, 16, 14),
+            padding: const EdgeInsets.fromLTRB(14, 18, 14, 14),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -170,16 +185,27 @@ class _AppShellState extends State<AppShell> {
             child: ListView(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
               children: [
-                for (final (g, items) in _groups) ...[
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(10, 10, 10, 4),
-                    child: Text(
-                      l.groupLabel(g),
-                      style: TextStyle(fontSize: 11, color: c.mutedForeground),
-                    ),
-                  ),
-                  for (final it in items) _navItem(c, l, it),
-                ],
+                _navItem(
+                  c,
+                  l.navScan,
+                  icon: Icons.radar_outlined,
+                  active: _page == 'flow' || _page == 'qrguide',
+                  onTap: () => setState(() => _page = 'flow'),
+                ),
+                _navItem(
+                  c,
+                  l.navHistory,
+                  icon: Icons.history,
+                  active: _page == 'history',
+                  onTap: () => setState(() => _page = 'history'),
+                ),
+                _navItem(
+                  c,
+                  l.navSettings,
+                  icon: Icons.settings_outlined,
+                  active: _page == 'settings',
+                  onTap: () => setState(() => _page = 'settings'),
+                ),
               ],
             ),
           ),
@@ -188,11 +214,13 @@ class _AppShellState extends State<AppShell> {
     );
   }
 
-  Widget _navItem(NLColors c, AppLocalizations l, _NavItem it) {
-    final active = it.id == _page;
-    // M2 起按会话相位解锁：自检恒可达；扫描/空态在离开自检后可达；
-    // 连接与能力页仅在链路推进到对应阶段时开放（controller 判定）。
-    final locked = !widget.controller.isNavUnlocked(it.id);
+  Widget _navItem(
+    NLColors c,
+    String label, {
+    required IconData icon,
+    required bool active,
+    required VoidCallback onTap,
+  }) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 2),
       child: Material(
@@ -200,32 +228,29 @@ class _AppShellState extends State<AppShell> {
         borderRadius: BorderRadius.circular(NLRadii.radiusMd),
         child: InkWell(
           borderRadius: BorderRadius.circular(NLRadii.radiusMd),
-          onTap: locked ? null : () => setState(() => _page = it.id),
+          onTap: onTap,
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
             child: Row(
               children: [
+                Icon(
+                  icon,
+                  size: 16,
+                  color: active ? c.foreground : c.mutedForeground,
+                ),
+                const SizedBox(width: 8),
                 Flexible(
                   child: Text(
-                    l.navLabel(it.id),
+                    label,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       fontSize: 13,
-                      color: locked
-                          ? c.mutedForeground
-                          : (active ? c.foreground : c.mutedForeground),
+                      color: active ? c.foreground : c.mutedForeground,
                       fontWeight: active ? FontWeight.w600 : FontWeight.w500,
                     ),
                   ),
                 ),
-                if (locked) ...[
-                  const Spacer(),
-                  Text(
-                    '·',
-                    style: TextStyle(fontSize: 13, color: c.mutedForeground),
-                  ),
-                ],
               ],
             ),
           ),
@@ -236,37 +261,44 @@ class _AppShellState extends State<AppShell> {
 
   Widget _topbar(NLColors c) {
     final l = AppLocalizations.of(context)!;
-    // 链路存活期间（连接建立直到本次配置会话结束）顶栏亮已连接。
-    final connected = switch (widget.controller.phase) {
-      SessionPhase.connecting ||
-      SessionPhase.readingCapabilities ||
-      SessionPhase.choosingSections ||
-      SessionPhase.editingConfig ||
-      SessionPhase.delivering ||
-      SessionPhase.completed ||
-      SessionPhase.operationError => true,
-      _ => false,
-    };
     return Container(
       height: 48,
       padding: const EdgeInsets.symmetric(horizontal: 16),
       color: c.background,
       child: Row(
         children: [
-          NLBadge(
-            label: connected ? l.topbarConnected : l.topbarNotConnected,
-            variant: connected ? NLBadgeVariant.success : NLBadgeVariant.muted,
+          // The badges group owns all free space so the two toggles hug the
+          // right edge (v6 right-corner ask); each badge ellipsizes when the
+          // bar gets narrow instead of pushing the toggles off-screen.
+          Expanded(
+            child: Row(
+              children: [
+                Flexible(child: _bleBadge(c, l)),
+                const SizedBox(width: 8),
+                Flexible(child: _phaseBadge(c, l)),
+              ],
+            ),
           ),
-          const Spacer(),
-          NLButton(
-            label: widget.langLabel,
-            variant: NLButtonVariant.ghost,
-            size: NLButtonSize.sm,
-            onPressed: widget.onToggleLocale,
+          const SizedBox(width: 12),
+          Tooltip(
+            // The label states the current language; the tooltip names the
+            // action so the toggle never reads as a status-only chip.
+            message: l.tipToggleLang,
+            child: NLButton(
+              label: widget.langLabel,
+              icon: Icons.translate,
+              variant: NLButtonVariant.ghost,
+              size: NLButtonSize.sm,
+              onPressed: widget.onToggleLocale,
+            ),
           ),
           const SizedBox(width: 6),
           NLButton(
             label: widget.dark ? l.themeToLight : l.themeToDark,
+            // Icon mirrors the direction the click switches to.
+            icon: widget.dark
+                ? Icons.light_mode_outlined
+                : Icons.dark_mode_outlined,
             variant: NLButtonVariant.ghost,
             size: NLButtonSize.sm,
             onPressed: widget.onToggleTheme,
@@ -274,5 +306,56 @@ class _AppShellState extends State<AppShell> {
         ],
       ),
     );
+  }
+
+  /// BLE adapter readiness straight from the last environment report (the
+  /// provisioning link itself is covered by the phase badge).
+  Widget _bleBadge(NLColors c, AppLocalizations l) {
+    final entry = controller.environmentReport?.channels
+        .where((channel) => channel.channel == DiscoveryChannel.ble)
+        .firstOrNull;
+    final (label, variant) = switch (entry?.capability) {
+      null => (l.topbarBleChecking, NLBadgeVariant.info),
+      ChannelCapability.available => (
+        l.topbarBleReady,
+        NLBadgeVariant.success,
+      ),
+      ChannelCapability.limited => (l.topbarBleLimited, NLBadgeVariant.warning),
+      ChannelCapability.unavailable => (
+        l.topbarBleUnavailable,
+        NLBadgeVariant.error,
+      ),
+    };
+    return NLBadge(label: label, variant: variant, dot: entry == null);
+  }
+
+  Widget _phaseBadge(NLColors c, AppLocalizations l) {
+    final phase = controller.phase;
+    final label = switch (phase) {
+      SessionPhase.selfChecking => l.tbStateSelfcheck,
+      SessionPhase.scanEmpty => l.tbStateEmpty,
+      SessionPhase.connecting ||
+      SessionPhase.readingCapabilities => l.tbStateConnecting,
+      SessionPhase.connectionError ||
+      SessionPhase.capabilityError => l.tbStateConnectFailed,
+      SessionPhase.choosingSections ||
+      SessionPhase.editingConfig => l.tbStateConfig,
+      SessionPhase.delivering => l.tbStateDelivering,
+      SessionPhase.operationError => l.tbStateDeliverFailed,
+      SessionPhase.completed => l.tbStateDone,
+      _ => l.tbStateScanning,
+    };
+    final variant = switch (phase) {
+      SessionPhase.connectionError ||
+      SessionPhase.capabilityError ||
+      SessionPhase.operationError => NLBadgeVariant.error,
+      SessionPhase.completed => NLBadgeVariant.success,
+      SessionPhase.connecting ||
+      SessionPhase.readingCapabilities ||
+      SessionPhase.delivering ||
+      SessionPhase.selfChecking => NLBadgeVariant.info,
+      _ => NLBadgeVariant.muted,
+    };
+    return NLBadge(label: label, variant: variant);
   }
 }

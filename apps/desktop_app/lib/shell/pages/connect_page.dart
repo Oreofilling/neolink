@@ -49,6 +49,14 @@ class ConnectPage extends StatelessWidget {
     );
   }
 
+  /// Fallback identity while caps have not arrived yet: the scan row's
+  /// model-suffix pair (e.g. NE101-A1B2C3).
+  String _deviceLabel() {
+    final candidate = controller.selectedCandidate;
+    if (candidate == null) return '';
+    return '${candidate.modelHint ?? ''}-${candidate.macSuffix ?? ''}';
+  }
+
   Widget _progressCard(NLColors c, AppLocalizations l) {
     final phase = controller.phase;
     final steps = [
@@ -63,70 +71,85 @@ class ConnectPage extends StatelessWidget {
       SessionPhase.readingCapabilities => controller.deviceInfo == null ? 2 : 3,
       _ => steps.length - 1,
     };
+    final deviceLabel = _deviceLabel();
     return NLCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          NLBadge(
-            label: l.badgeChecking,
-            variant: NLBadgeVariant.info,
-            dot: true,
-          ),
-          const SizedBox(height: 16),
-          for (var index = 0; index < steps.length; index++)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: Row(
-                children: [
-                  SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: index < currentIndex
-                        ? Icon(Icons.check, size: 16, color: c.foreground)
-                        : (index == currentIndex
-                              ? const SizedBox(
-                                  width: 12,
-                                  height: 12,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                  ),
-                                )
-                              : Icon(
-                                  Icons.circle_outlined,
-                                  size: 12,
-                                  color: c.mutedForeground,
-                                )),
-                  ),
-                  const SizedBox(width: 10),
-                  Text(
-                    steps[index],
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: index <= currentIndex
-                          ? c.foreground
-                          : c.mutedForeground,
-                      fontWeight: index == currentIndex
-                          ? FontWeight.w600
-                          : FontWeight.w500,
-                    ),
-                  ),
-                ],
-              ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            NLBadge(
+              label: deviceLabel.isEmpty
+                  ? l.badgeChecking
+                  : l.connectWith(deviceLabel),
+              variant: NLBadgeVariant.info,
+              dot: true,
             ),
-          if (controller.connectSteps.isNotEmpty) ...[
-            const SizedBox(height: 8),
-            Divider(height: 1, thickness: 1, color: c.border),
-            const SizedBox(height: 10),
-            Text(
-              controller.connectSteps.last,
-              style: TextStyle(
-                fontSize: 10,
-                fontFamily: 'JetBrains Mono',
-                color: c.mutedForeground,
+            const SizedBox(height: 16),
+            for (var index = 0; index < steps.length; index++)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: Row(
+                  children: [
+                    SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: index < currentIndex
+                          ? Icon(Icons.check, size: 16, color: c.foreground)
+                          : (index == currentIndex
+                                ? const SizedBox(
+                                    width: 12,
+                                    height: 12,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                : Icon(
+                                    Icons.circle_outlined,
+                                    size: 12,
+                                    color: c.mutedForeground,
+                                  )),
+                    ),
+                    const SizedBox(width: 10),
+                    Text(
+                      steps[index],
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: index <= currentIndex
+                            ? c.foreground
+                            : c.mutedForeground,
+                        fontWeight: index == currentIndex
+                            ? FontWeight.w600
+                            : FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
               ),
+            if (controller.connectSteps.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Divider(height: 1, thickness: 1, color: c.border),
+              const SizedBox(height: 10),
+              Text(
+                controller.connectSteps.last,
+                style: TextStyle(
+                  fontSize: 10,
+                  fontFamily: 'JetBrains Mono',
+                  color: c.mutedForeground,
+                ),
+              ),
+            ],
+            const SizedBox(height: 12),
+            // v6: an explicit way out while the link hangs — back to the
+            // continuous scan instead of waiting for the step timeout.
+            NLButton(
+              label: l.connectCancel,
+              variant: NLButtonVariant.ghost,
+              size: NLButtonSize.sm,
+              onPressed: controller.rescan,
             ),
           ],
-        ],
+        ),
       ),
     );
   }
@@ -135,39 +158,52 @@ class ConnectPage extends StatelessWidget {
     final problem = controller.lastProblem;
     final detail = problem == null ? '' : (problem.message ?? problem.reason);
     return NLCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          NLBadge(
-            label: phase == SessionPhase.capabilityError
-                ? l.connectCapsErrorTitle
-                : l.connectErrorTitle,
-            variant: NLBadgeVariant.error,
-          ),
-          const SizedBox(height: 10),
-          Text(
-            l.connectRetryHint,
-            style: TextStyle(fontSize: 12, color: c.mutedForeground),
-          ),
-          if (detail.isNotEmpty) ...[
-            const SizedBox(height: 8),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            NLBadge(
+              label: phase == SessionPhase.capabilityError
+                  ? l.connectCapsErrorTitle
+                  : l.connectErrorTitle,
+              variant: NLBadgeVariant.error,
+            ),
+            const SizedBox(height: 10),
             Text(
-              detail,
-              style: TextStyle(
-                fontSize: 10,
-                fontFamily: 'JetBrains Mono',
-                color: c.mutedForeground,
+              l.connectRetryHint,
+              style: TextStyle(fontSize: 12, color: c.mutedForeground),
+            ),
+            if (detail.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text(
+                detail,
+                style: TextStyle(
+                  fontSize: 10,
+                  fontFamily: 'JetBrains Mono',
+                  color: c.mutedForeground,
+                ),
               ),
+            ],
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                // Same candidate straight through the connect chain again —
+                // the device stays in config mode after the dropped link.
+                NLButton(
+                  label: l.connectRetry,
+                  onPressed: controller.retryConnect,
+                ),
+                const SizedBox(width: 8),
+                NLButton(
+                  label: l.connectBackToList,
+                  variant: NLButtonVariant.secondary,
+                  onPressed: controller.switchCandidate,
+                ),
+              ],
             ),
           ],
-          const SizedBox(height: 16),
-          NLButton(
-            label: l.connectBackToList,
-            variant: NLButtonVariant.secondary,
-            size: NLButtonSize.sm,
-            onPressed: controller.switchCandidate,
-          ),
-        ],
+        ),
       ),
     );
   }

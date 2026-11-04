@@ -15,6 +15,7 @@ import 'package:desktop_app/app.dart';
 import 'package:desktop_app/provisioning/provisioning_controller.dart';
 import 'package:desktop_app/services/environment_probe.dart';
 import 'package:desktop_app/services/settings_store.dart';
+import 'package:desktop_app/shell/widgets/scan_radar.dart';
 
 import 'provisioning_fakes.dart';
 
@@ -66,16 +67,19 @@ void main() {
     expect(controller.phase, SessionPhase.resultsAvailable);
     expect(find.text('NE101'), findsOneWidget);
     expect(find.text('连接'), findsOneWidget);
+    // v6: healthy rows fill the status/last-seen cells (idle badge, just now).
+    expect(find.text('空闲'), findsOneWidget);
+    expect(find.text('刚刚'), findsOneWidget);
 
     await tester.tap(find.text('连接'));
     await settle(tester);
     expect(controller.phase, SessionPhase.choosingSections);
-    expect(find.text('NE101-AABBCC'), findsOneWidget); // 设备信息卡
-    expect(find.text('wifi'), findsOneWidget);
-    expect(find.text('cellular'), findsOneWidget);
-    expect(find.text('mqtt'), findsOneWidget);
-    expect(find.text('从未配置'), findsOneWidget); // 当前网络
-    expect(find.text('已连接'), findsOneWidget); // 顶栏徽章
+    expect(find.text('NE101-AABBCC'), findsOneWidget); // 会话上下文条
+    expect(find.text('Wi-Fi 联网'), findsOneWidget); // 产品名节标签
+    expect(find.text('蜂窝网络 4G'), findsOneWidget);
+    expect(find.text('MQTT 数据推送'), findsOneWidget);
+    expect(find.text('从未配置'), findsOneWidget); // 右栏当前网络
+    expect(find.text('已连接'), findsOneWidget); // 上下文条徽章
 
     // 勾选 wifi 节（节顺序与能力响应一致）。
     final boxes = find.byType(Checkbox);
@@ -165,7 +169,7 @@ void main() {
     await tester.pump(const Duration(seconds: 21)); // 超时触发
 
     expect(controller.phase, SessionPhase.scanEmpty);
-    expect(find.text('未发现设备'), findsWidgets); // 导航 + 页标题
+    expect(find.text('未发现您的设备'), findsOneWidget); // 空态页标题
     expect(find.textContaining('附近没有发现可配置设备'), findsOneWidget);
 
     await tester.tap(find.text('重新扫描'));
@@ -193,7 +197,7 @@ void main() {
     await settle(tester);
     expect(controller.phase, SessionPhase.choosingSections);
     // §13.3 Ethernet: readonly row plus the PoE power attribute badge.
-    expect(find.text('ethernet'), findsOneWidget);
+    expect(find.text('以太网'), findsOneWidget); // 产品名节标签
     expect(find.text('PoE 供电'), findsOneWidget);
   });
 
@@ -222,7 +226,6 @@ void main() {
     await tester.tap(find.text('开始配置'));
     await settle(tester);
     expect(controller.phase, SessionPhase.editingConfig);
-    expect(find.text('下发确认'), findsWidgets); // page title + sidebar
 
     // config.get prefill: ssid filled, masked password left empty (an open
     // network is legal).
@@ -238,11 +241,11 @@ void main() {
 
     // Result page: stored list + apply hint + finish back to scan loop.
     expect(controller.phase, SessionPhase.completed);
-    expect(find.text('已写入 1 个配置节'), findsOneWidget);
-    expect(find.text('wifi'), findsOneWidget);
+    expect(find.text('已保存 1 项配置'), findsOneWidget);
+    expect(find.text('Wi-Fi 联网'), findsOneWidget);
     expect(find.text('配置将在网络重连后生效'), findsOneWidget);
 
-    await tester.tap(find.text('完成'));
+    await tester.tap(find.text('完成并返回扫描'));
     await settle(tester);
     expect(controller.phase, SessionPhase.scanning);
     // Pump past the scan window to converge back to empty (also guarantees
@@ -285,6 +288,10 @@ void main() {
     expect(find.text('下发被拒，已保留所填内容'), findsOneWidget);
     expect(find.textContaining('FIELD_NOT_SUPPORTED'), findsOneWidget);
 
+    // The earlier ensureVisible(下发配置) scroll leaves the banner above the
+    // fold — scroll back to it before tapping.
+    await tester.ensureVisible(find.text('返回编辑'));
+    await tester.pump();
     await tester.tap(find.text('返回编辑'));
     await settle(tester);
     expect(controller.phase, SessionPhase.editingConfig);
@@ -331,6 +338,8 @@ void main() {
     expect(controller.scanItems, hasLength(3));
 
     // Picking a tile writes the ssid draft.
+    await tester.ensureVisible(find.text('CT-HaLow'));
+    await tester.pump();
     await tester.tap(find.text('CT-HaLow'));
     await settle(tester);
     expect((controller.drafts['wifi'] as WifiSection).ssid, 'CT-HaLow');
@@ -346,20 +355,31 @@ void main() {
     addTearDown(controller.dispose);
 
     await pumpApp(tester, controller);
-    await settle(tester); // Self-check done; countdown sits at 5 (16ms frame steps never hit the 1s tick).
+    await settle(tester); // Report landed; the v6 walk sits on the first row.
     expect(controller.phase, SessionPhase.selfChecking);
+    // v6 walk: first row mid-check (spinner + checking), later rows queued.
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    expect(find.text('等待检测'), findsNWidgets(2));
+    expect(find.text('点击页面任意位置可停止自动进入'), findsOneWidget);
+
+    // Walk ticks (600ms/row) land for all three channels, then the countdown
+    // arms — the digit is the proof the walk finished first.
+    await tester.pump(const Duration(seconds: 2));
     // Round-2 A1: big countdown digits plus the suffix hint — unmissable.
     expect(find.text('5'), findsOneWidget);
     expect(find.text('秒后自动进入扫描'), findsOneWidget);
-    expect(find.text('停留本页'), findsOneWidget);
+    // v6: the stay button is gone — any click on the page holds it instead.
+    expect(find.text('停留本页'), findsNothing);
 
-    await tester.tap(find.text('停留本页'));
+    await tester.tap(find.text('环境自检')); // tap-to-stay on the page body
     await settle(tester);
     expect(controller.selfCheckCountdown, isNull);
     expect(controller.selfCheckHeld, isTrue);
     expect(find.textContaining('已停留本页'), findsOneWidget);
 
-    await tester.tap(find.text('立即扫描'));
+    await tester.ensureVisible(find.text('立即进入扫描'));
+    await tester.pump();
+    await tester.tap(find.text('立即进入扫描'));
     await settle(tester);
     expect(controller.phase, SessionPhase.scanning);
     // 泵过扫描窗口收敛回空态，保证收尾无挂起定时器。
@@ -367,7 +387,31 @@ void main() {
     expect(controller.phase, SessionPhase.scanEmpty);
   });
 
-  testWidgets('M3b A2: selfcheck page stays reachable mid-scan', (tester) async {
+  testWidgets('v6 icon pass: topbar toggles and page decorations carry icons', (tester) async {
+    final source = FakeSource();
+    final device = FakeCtDevice();
+    final controller = wiredController(source, device);
+    addTearDown(source.close);
+    addTearDown(device.close);
+    addTearDown(controller.dispose);
+
+    await pumpApp(tester, controller);
+    await settle(tester); // Self-check passed -> scanning page.
+
+    // Topbar right corner: language and theme toggle icons beside badges.
+    expect(find.byIcon(Icons.translate), findsOneWidget);
+    expect(find.byIcon(Icons.dark_mode_outlined), findsOneWidget);
+    // Scan page: leading title icon and the radar loading panel (no
+    // skeleton rows left).
+    expect(find.byIcon(Icons.radar_outlined), findsWidgets);
+    expect(find.byType(ScanRadar), findsOneWidget);
+
+    // Pump past the scan window so no timer dangles at teardown.
+    await tester.pump(const Duration(seconds: 21));
+    expect(controller.phase, SessionPhase.scanEmpty);
+  });
+
+  testWidgets('M3b A2: history page stays put mid-scan (refresh immunity)', (tester) async {
     final source = FakeSource();
     final device = FakeCtDevice();
     final controller = wiredController(source, device);
@@ -378,25 +422,21 @@ void main() {
     await pumpApp(tester, controller);
     await settle(tester); // Self-check passed -> scanning.
 
-    // Navigate back to the selfcheck page from the sidebar.
-    await tester.tap(find.text('环境自检'));
+    // Hop to the history page from the sidebar.
+    await tester.tap(find.text('历史会话'));
     await settle(tester);
-    expect(find.text('重新检测'), findsOneWidget); // On the selfcheck page.
+    expect(find.textContaining('暂无记录'), findsOneWidget);
 
-    // Pump past a 3s sweep tick: the phase did not migrate, so the shell must
-    // keep the manual page selection (round-2 A2 regression).
-    await tester.pump(const Duration(seconds: 4));
-    expect(find.text('重新检测'), findsOneWidget);
-
-    // Re-run checks mid-scan: report refresh only — no phase change, no jump.
-    await tester.tap(find.text('重新检测'));
-    await settle(tester);
-    expect(controller.phase, SessionPhase.scanning);
-    expect(find.text('重新检测'), findsOneWidget);
-
-    // Converge past the scan window to clear pending timers.
+    // Pump past the whole scan window: the phase migrates scanning ->
+    // scanEmpty, but the shell must keep the manual page selection.
     await tester.pump(const Duration(seconds: 21));
     expect(controller.phase, SessionPhase.scanEmpty);
+    expect(find.textContaining('暂无记录'), findsOneWidget); // still history
+
+    // Back to the scan destination: the empty page shows up.
+    await tester.tap(find.text('扫描设备'));
+    await settle(tester);
+    expect(find.text('未发现您的设备'), findsOneWidget);
   });
 
   testWidgets('M3d recheck feedback: running label, then last-checked stamp',
@@ -431,24 +471,30 @@ void main() {
     expect(controller.selfCheckAt, isNull);
 
     gate.complete(readyReport());
-    await settle(tester); // first check done -> countdown
+    await settle(tester); // report landed; v6 walk on the first row
+    expect(find.text('等待检测'), findsNWidgets(2));
+    await tester.pump(const Duration(seconds: 2)); // walk plays out -> countdown
     expect(find.text('5'), findsOneWidget);
     expect(find.textContaining('上次检测'), findsOneWidget); // stamp proves it ran
 
     // Re-check: countdown cancelled, running label back, then a fresh stamp.
     final firstAt = controller.selfCheckAt;
     gate = Completer<CtEnvironmentReport>();
-    await tester.tap(find.text('重新检测'));
+    // v6: re-check is the refresh icon pinned to the card's top-right.
+    await tester.tap(find.byIcon(Icons.refresh));
     await settle(tester);
     expect(find.text('正在检测环境…'), findsOneWidget);
     expect(controller.selfCheckCountdown, isNull);
     gate.complete(readyReport());
     await settle(tester);
+    await tester.pump(const Duration(seconds: 2)); // walk replays -> countdown
     expect(identical(controller.selfCheckAt, firstAt), isFalse);
     expect(find.text('5'), findsOneWidget); // countdown restarted
 
     // Converge: enter the scan, pump past the window (no pending timers).
-    await tester.tap(find.text('立即扫描'));
+    await tester.ensureVisible(find.text('立即进入扫描'));
+    await tester.pump();
+    await tester.tap(find.text('立即进入扫描'));
     await settle(tester);
     await tester.pump(const Duration(seconds: 21));
     expect(controller.phase, SessionPhase.scanEmpty);
@@ -500,12 +546,13 @@ void main() {
     );
     await settle(tester);
     expect(find.text('Scan devices'), findsWidgets);
+    expect(find.text('EN'), findsOneWidget); // v6: toggle states the CURRENT language
 
     // 顶栏切换 → 界面立即中文（写盘为 fire-and-forget，UI 断言不依赖文件）。
-    await tester.tap(find.text('中文'));
+    await tester.tap(find.text('EN'));
     await tester.pump();
     expect(find.text('扫描设备'), findsWidgets);
-    expect(find.text('EN'), findsOneWidget); // 有效语言已切到中文
+    expect(find.text('中文'), findsOneWidget); // 有效语言已切到中文
 
     // 泵过扫描窗口收敛回空态（清理定时器），再验证重启恢复路径。
     await tester.pump(const Duration(seconds: 21));
@@ -519,6 +566,6 @@ void main() {
     );
     await settle(tester);
     expect(find.text('扫描设备'), findsWidgets);
-    expect(find.text('EN'), findsOneWidget); // 存储语言覆盖系统英文
+    expect(find.text('中文'), findsOneWidget); // 存储语言覆盖系统英文
   });
 }

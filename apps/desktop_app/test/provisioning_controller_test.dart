@@ -18,12 +18,14 @@ ProvisioningController makeController(
   DesktopEnvironmentProbe? probe,
   Future<CtGattChannel> Function(String, void Function(String))? connect,
   Duration scanTimeout = const Duration(seconds: 20),
+  Duration sweepInterval = const Duration(seconds: 3),
 }) => ProvisioningController(
   environmentProbe: probe ?? readyProbe(),
   discoverySource: source,
   establishPairing: (_) async {},
   connectChannel: connect ?? ((_, __) async => FakeCtDevice()),
   scanTimeout: scanTimeout,
+  sweepInterval: sweepInterval,
   // 旧用例语义是「自检过即进扫描」：零等待跳过倒计时。
   selfCheckHold: Duration.zero,
 );
@@ -76,8 +78,8 @@ void main() {
         () => controller.phase == SessionPhase.resultsAvailable,
         'candidate did not move phase',
       );
-      // 出候选即停源：底层扫描资源与相位同步收敛。
-      await until(() => source.stopCount >= 1, 'scan source not stopped');
+      // 连续扫描（v6）：出候选不停源，行随 TTL 老去；源仅在超时/选择/清理时停。
+      expect(source.stopCount, 0);
       expect(controller.candidates, hasLength(1));
 
       await controller.selectCandidate(controller.candidates.first);
@@ -188,6 +190,69 @@ void main() {
     expect(controller.candidates, isEmpty);
   });
 
+  // v6 连续扫描：候选 TTL 过期扫空后自动重开扫描窗口。
+  test('swept-empty results auto-restart the scan window (v6)', () async {
+    final source = FakeSource();
+    final controller = makeController(
+      source,
+      sweepInterval: const Duration(milliseconds: 20),
+    );
+    addTearDown(controller.dispose);
+    addTearDown(source.close);
+
+    await controller.runSelfCheck();
+    await until(() => source.startCount == 1, 'selfcheck did not start scan');
+    // 出生即超过 TTL 的候选：首个 sweep tick 即被淘汰。
+    source.emit(sampleCandidate(seen: DateTime.now().subtract(
+      const Duration(seconds: 30),
+    )));
+    await until(
+      () => controller.phase == SessionPhase.resultsAvailable,
+      'candidate did not move phase',
+    );
+    expect(source.stopCount, 0); // 连续扫描：候选期源保持运行
+
+    await until(
+      () => controller.phase == SessionPhase.scanning && source.startCount == 2,
+      'sweep expiry did not auto-rescan',
+    );
+    expect(controller.candidates, isEmpty);
+  });
+
+  // v6 连接页「重试连接」：同一候选原链路重放。
+  test('retryConnect replays the connect chain on the same candidate', () async {
+    final source = FakeSource();
+    final device = FakeCtDevice();
+    var attempts = 0;
+    final controller = makeController(
+      source,
+      connect: (_, __) async {
+        attempts++;
+        if (attempts == 1) throw Exception('gatt link gone');
+        return device;
+      },
+    );
+    addTearDown(controller.dispose);
+    addTearDown(source.close);
+    addTearDown(device.close);
+
+    await controller.runSelfCheck();
+    await until(() => source.startCount == 1, 'selfcheck did not start scan');
+    source.emit(sampleCandidate());
+    await until(
+      () => controller.phase == SessionPhase.resultsAvailable,
+      'candidate did not move phase',
+    );
+
+    await controller.selectCandidate(controller.candidates.first);
+    expect(controller.phase, SessionPhase.connectionError);
+
+    await controller.retryConnect();
+    expect(attempts, 2);
+    expect(controller.phase, SessionPhase.choosingSections);
+    expect(controller.selectedCandidate, isNotNull);
+  });
+
   test(
     'blocked selfcheck stays in selfChecking without starting scan',
     () async {
@@ -253,6 +318,63 @@ void main() {
       );
     });
 
+    test('walk reveals channels one-by-one, then arms the countdown (v6)',
+        () async {
+      final source = FakeSource();
+      final controller = ProvisioningController(
+        environmentProbe: readyProbe(),
+        discoverySource: source,
+        establishPairing: (_) async {},
+        connectChannel: (_, __) async => FakeCtDevice(),
+        selfCheckHold: const Duration(seconds: 5),
+      );
+      addTearDown(controller.dispose);
+      addTearDown(source.close);
+
+      final running = controller.runSelfCheck();
+      // The walk starts at row 0 the moment the report lands.
+      await until(
+        () => controller.selfCheckWalkIndex == 0,
+        'walk did not start at row 0',
+      );
+      // The countdown must wait until every channel has been revealed.
+      expect(controller.selfCheckCountdown, isNull);
+      await running;
+      expect(controller.selfCheckWalkIndex, -1);
+      expect(controller.selfCheckCountdown, 5);
+      controller.stayOnSelfCheck();
+    });
+
+    test('stay during the walk holds with all rows revealed (v6)', () async {
+      final source = FakeSource();
+      final controller = ProvisioningController(
+        environmentProbe: readyProbe(),
+        discoverySource: source,
+        establishPairing: (_) async {},
+        connectChannel: (_, __) async => FakeCtDevice(),
+        selfCheckHold: const Duration(seconds: 5),
+      );
+      addTearDown(controller.dispose);
+      addTearDown(source.close);
+
+      final running = controller.runSelfCheck();
+      await until(
+        () => controller.selfCheckWalkIndex == 0,
+        'walk did not start at row 0',
+      );
+      controller.stayOnSelfCheck();
+      expect(controller.selfCheckWalkIndex, -1);
+      expect(controller.selfCheckHeld, isTrue);
+      expect(controller.selfCheckCountdown, isNull);
+      // runSelfCheck resolves early via the cancelled walk — no countdown arm.
+      await running;
+      expect(controller.selfCheckHeld, isTrue);
+      expect(controller.selfCheckCountdown, isNull);
+      expect(controller.phase, SessionPhase.selfChecking);
+      await Future<void>.delayed(const Duration(milliseconds: 700));
+      expect(controller.selfCheckCountdown, isNull); // no late arm either
+    });
+
     test('recheck from a later phase refreshes the report only (A2)', () async {
       final source = FakeSource();
       final controller = makeController(source);
@@ -273,7 +395,7 @@ void main() {
       expect(controller.phase, SessionPhase.resultsAvailable);
       expect(identical(controller.environmentReport, before), isFalse);
       expect(source.startCount, 1);
-      expect(source.stopCount, 1); // 停源状态未被扰动
+      expect(source.stopCount, 0); // 连续扫描：出候选不停源
     });
 
     // Round-3 A2: a completed check must stamp selfCheckAt and always clear
@@ -367,6 +489,15 @@ void main() {
       expect(controller.phase, SessionPhase.completed);
       expect(controller.deliveryResult!.stored, containsAll(['wifi', 'mqtt']));
       expect(controller.deliveryResult!.apply, 'reconnect');
+      // v6: 成功下发即记回执（历史页数据源）。
+      expect(controller.sessionHistory, hasLength(1));
+      expect(controller.sessionHistory.single.deviceName, 'NE101-AABBCC');
+      expect(controller.sessionHistory.single.model, 'NE101');
+      expect(
+        controller.sessionHistory.single.sections,
+        containsAll(['wifi', 'mqtt']),
+      );
+      expect(controller.sessionHistory.single.appliedAt, isNotNull);
       expect(device.lastConfigSet, {
         'wifi': {'ssid': 'Office-2.4G', 'password': 'example-password'},
         'mqtt': {'enable': true, 'host': 'mqtt.example.com', 'port': 8883},
