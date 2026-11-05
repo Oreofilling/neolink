@@ -103,6 +103,48 @@ void main() {
       machine.editAgain();
       expect(machine.phase, SessionPhase.editingConfig);
     });
+
+    test('断链与恢复：编辑中断链 → linkLost → 原位恢复', () {
+      final machine = connectedMachine();
+      machine.beginEditing();
+      machine.markLinkLost();
+      expect(machine.phase, SessionPhase.linkLost);
+      machine.linkRestored(editing: true);
+      expect(machine.phase, SessionPhase.editingConfig);
+      machine.markLinkLost();
+      machine.linkRestored(editing: false);
+      expect(machine.phase, SessionPhase.choosingSections);
+    });
+
+    test('断链可从四个会话相位进入，清理是逃生门', () async {
+      // choosingSections（connectedMachine 止点即该相位）。
+      final choosing = connectedMachine();
+      choosing.markLinkLost();
+      expect(choosing.phase, SessionPhase.linkLost);
+      // editingConfig → delivering → operationError 逐一验证。
+      final machine = connectedMachine();
+      machine.beginEditing();
+      machine.markLinkLost();
+      machine.linkRestored(editing: true);
+      machine.beginDelivery();
+      machine.markLinkLost();
+      expect(machine.phase, SessionPhase.linkLost);
+      machine.linkRestored(editing: true);
+      machine.beginDelivery();
+      machine.failOperation('storage_failed');
+      machine.markLinkLost();
+      expect(machine.phase, SessionPhase.linkLost);
+      await machine.cleanup();
+      expect(machine.phase, SessionPhase.scanning);
+    });
+
+    test('completed 不接受断链迁移（应用配置后设备重启属正常断开，不弹窗）', () {
+      final machine = connectedMachine();
+      machine.beginEditing();
+      machine.beginDelivery();
+      machine.deliveryStored();
+      expect(() => machine.markLinkLost(), throwsStateError);
+    });
   });
 
   group('资源释放钩子', () {

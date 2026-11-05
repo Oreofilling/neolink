@@ -27,73 +27,126 @@ class ScanPage extends StatelessWidget {
       listenable: controller,
       builder: (context, _) {
         final scanning = controller.phase == SessionPhase.scanning;
+        // v7c: 空结果不再换页——扫描页原位提示未发现设备，扫码添加是
+        // 主出路（唤醒设备 → 输设备码 → 连接），重扫覆盖「设备刚醒」。
+        final empty = controller.phase == SessionPhase.scanEmpty;
         final candidates = controller.candidates;
-        return SingleChildScrollView(
-          padding: const EdgeInsets.all(20),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 960),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Icon(
-                      Icons.radar_outlined,
-                      size: 18,
-                      color: c.mutedForeground,
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      l.scanTitle,
-                      style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w700,
+        // v7c: 扫码条钉在视口底部、不随内容滚动——空态面板/长设备表
+        // 在矮窗口（800x600 的测试画布即最矮情况）也不会把它顶出屏。
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(20, 20, 20, 10),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 960),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.radar_outlined,
+                            size: 18,
+                            color: c.mutedForeground,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            l.scanTitle,
+                            style: const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          if (scanning)
+                            NLBadge(
+                              label: l.badgeChecking,
+                              variant: NLBadgeVariant.info,
+                              dot: true,
+                            )
+                          else
+                            NLBadge(
+                              label: l.scanCandidateCount(candidates.length),
+                              variant: NLBadgeVariant.muted,
+                            ),
+                          const Spacer(),
+                          NLButton(
+                            label: l.scanRescan,
+                            variant: NLButtonVariant.secondary,
+                            size: NLButtonSize.sm,
+                            onPressed: controller.rescan,
+                          ),
+                        ],
                       ),
-                    ),
-                    const SizedBox(width: 10),
-                    if (scanning)
-                      NLBadge(
-                        label: l.badgeChecking,
-                        variant: NLBadgeVariant.info,
-                        dot: true,
-                      )
-                    else
-                      NLBadge(
-                        label: l.scanCandidateCount(candidates.length),
-                        variant: NLBadgeVariant.muted,
+                      const SizedBox(height: 6),
+                      Text(
+                        l.scanSub,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: c.mutedForeground,
+                        ),
                       ),
-                    const Spacer(),
-                    NLButton(
-                      label: l.scanRescan,
-                      variant: NLButtonVariant.secondary,
-                      size: NLButtonSize.sm,
-                      onPressed: controller.rescan,
-                    ),
-                  ],
+                      const SizedBox(height: 16),
+                      _channelCards(c, l, candidates),
+                      const SizedBox(height: 16),
+                      if (empty)
+                        _emptyPanel(c, l)
+                      else if (candidates.isEmpty && scanning)
+                        _scanningPanel(c, l)
+                      else
+                        _deviceTable(c, l, candidates),
+                    ],
+                  ),
                 ),
-                const SizedBox(height: 6),
-                Text(
-                  l.scanSub,
-                  style: TextStyle(fontSize: 12, color: c.mutedForeground),
-                ),
-                const SizedBox(height: 16),
-                _channelCards(c, l, candidates),
-                const SizedBox(height: 16),
-                if (candidates.isEmpty && scanning)
-                  _scanningPanel(c, l)
-                else
-                  _deviceTable(c, l, candidates),
-                // The QR entry is a permanent fixture at the bottom — the
-                // user decides to add by code while the sweep is still
-                // running, not only after the window burnt out on a table
-                // full of rows.
-                const SizedBox(height: 10),
-                _noHitBar(c, l),
-              ],
+              ),
             ),
-          ),
+            // The QR entry is a permanent fixture at the bottom — the
+            // user decides to add by code while the sweep is still
+            // running, not only after the window burnt out on a table
+            // full of rows. On empty it doubles as the way out; the
+            // header keeps the rescan action.
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 960),
+                child: _noHitBar(c, l),
+              ),
+            ),
+          ],
         );
       },
+    );
+  }
+
+  /// Empty-result panel (v7c): the scan window burnt out with nothing
+  /// found — the hint lives on this page (no separate empty screen). The
+  /// QR strip below and the header rescan cover the actions.
+  Widget _emptyPanel(NLColors c, AppLocalizations l) {
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        border: Border.all(color: c.border),
+        borderRadius: BorderRadius.circular(NLRadii.radiusLg),
+      ),
+      padding: const EdgeInsets.symmetric(vertical: 34, horizontal: 20),
+      child: Column(
+        children: [
+          Icon(Icons.wifi_find_outlined, size: 30, color: c.mutedForeground),
+          const SizedBox(height: 12),
+          Text(
+            l.emptyTitle,
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            l.emptyHint,
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 12, color: c.mutedForeground),
+          ),
+        ],
+      ),
     );
   }
 
@@ -236,36 +289,17 @@ class ScanPage extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
             child: Row(
               children: [
-                Expanded(
-                  flex: 3,
-                  child: _headText(c, l.tbDevice),
-                ),
-                SizedBox(
-                  width: 92,
-                  child: _headText(c, l.tbChannel),
-                ),
-                SizedBox(
-                  width: 120,
-                  child: _headText(c, l.tbSignalCol),
-                ),
-                SizedBox(
-                  width: 110,
-                  child: _headText(c, l.tbStatus),
-                ),
-                Expanded(
-                  flex: 2,
-                  child: _headText(c, l.tbLastSeen),
-                ),
-                SizedBox(
-                  width: 84,
-                  child: _headText(c, l.tbAction),
-                ),
+                Expanded(flex: 3, child: _headText(c, l.tbDevice)),
+                SizedBox(width: 92, child: _headText(c, l.tbChannel)),
+                SizedBox(width: 120, child: _headText(c, l.tbSignalCol)),
+                SizedBox(width: 110, child: _headText(c, l.tbStatus)),
+                Expanded(flex: 2, child: _headText(c, l.tbLastSeen)),
+                SizedBox(width: 84, child: _headText(c, l.tbAction)),
               ],
             ),
           ),
           Divider(height: 1, thickness: 1, color: c.border),
-          for (final candidate in candidates)
-            _deviceRow(c, l, candidate),
+          for (final candidate in candidates) _deviceRow(c, l, candidate),
         ],
       ),
     );
@@ -280,16 +314,13 @@ class ScanPage extends StatelessWidget {
     ),
   );
 
-  Widget _deviceRow(
-    NLColors c,
-    AppLocalizations l,
-    DiscoveryCandidate device,
-  ) {
+  Widget _deviceRow(NLColors c, AppLocalizations l, DiscoveryCandidate device) {
     final selectable = device.provisionable && !device.busy;
     final age = DateTime.now().difference(device.lastSeen);
     final stale = age > controller.ttl;
     final focused =
-        device.macSuffix != null && device.macSuffix == controller.qrFocusSuffix;
+        device.macSuffix != null &&
+        device.macSuffix == controller.qrFocusSuffix;
     final signal = device.signal;
     return Opacity(
       opacity: stale ? 0.62 : 1,

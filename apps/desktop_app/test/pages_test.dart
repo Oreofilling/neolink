@@ -24,11 +24,14 @@ ProvisioningController wiredController(
   FakeCtDevice device, {
   Duration scanTimeout = const Duration(seconds: 20),
   Duration selfCheckHold = Duration.zero,
+  Stream<bool> Function(String deviceId)? linkEvents,
 }) => ProvisioningController(
   environmentProbe: readyProbe(),
   discoverySource: source,
   establishPairing: (_) async {},
   connectChannel: (_, __) async => device,
+  // 默认空流：不测断连的用例不触碰 universal_ble 静态（测试环境无插件）。
+  linkEvents: linkEvents ?? ((_) => const Stream<bool>.empty()),
   scanTimeout: scanTimeout,
   selfCheckHold: selfCheckHold,
 );
@@ -47,6 +50,14 @@ Future<void> pumpApp(
   ProvisioningController controller, {
   SettingsStore? settings,
 }) async {
+  // v7c: the scan page pins the QR strip at the bottom, so the scroll
+  // viewport loses ~68px. Exercise a realistic desktop window (1280x900)
+  // instead of the 800x600 default, where the first table row's connect
+  // button would otherwise sit below the fold.
+  tester.view.physicalSize = const Size(1280, 900);
+  tester.view.devicePixelRatio = 1.0;
+  addTearDown(tester.view.resetPhysicalSize);
+  addTearDown(tester.view.resetDevicePixelRatio);
   tester.platformDispatcher.localesTestValue = const [Locale('zh')];
   await tester.pumpWidget(
     NeoLinkApp(
@@ -190,7 +201,7 @@ void main() {
     expect(controller.phase, SessionPhase.scanEmpty);
   });
 
-  testWidgets('空态页进扫码指引：指引保持打开且后台持续重开扫描', (tester) async {
+  testWidgets('空态提示进扫码指引：指引保持打开且后台持续重开扫描', (tester) async {
     final source = FakeSource();
     final device = FakeCtDevice();
     final controller = wiredController(source, device);
@@ -199,10 +210,13 @@ void main() {
 
     await pumpApp(tester, controller);
     await settle(tester);
-    await tester.pump(const Duration(seconds: 21)); // 超时 → 空态页
+    await tester.pump(const Duration(seconds: 21)); // 超时 → 空态提示
     expect(controller.phase, SessionPhase.scanEmpty);
+    // v7c: 空结果不换页——扫描页原位提示未发现设备，扫码入口在底部。
+    expect(find.text('未发现您的设备'), findsOneWidget);
+    expect(find.textContaining('附近没有发现可配置设备'), findsOneWidget);
 
-    await tester.tap(find.text('扫码添加设备'));
+    await tester.tap(find.text('扫码添加'));
     await settle(tester); // post-frame 重扫：scanEmpty → cleaning → scanning
     expect(controller.phase, SessionPhase.scanning);
     // 回归：cleaning 相位不得把指引弹回（此前一帧闪退，点击看似无反应）。
@@ -484,7 +498,8 @@ void main() {
 
     // Topbar right corner: language and theme toggle icons beside badges.
     expect(find.byIcon(Icons.translate), findsOneWidget);
-    expect(find.byIcon(Icons.dark_mode_outlined), findsOneWidget);
+    // v7c: the chip states the CURRENT theme — light UI carries the sun.
+    expect(find.byIcon(Icons.light_mode_outlined), findsOneWidget);
     // Scan page: leading title icon and the radar loading panel (no
     // skeleton rows left).
     expect(find.byIcon(Icons.radar_outlined), findsWidgets);
@@ -663,5 +678,63 @@ void main() {
     await settle(tester);
     expect(find.text('扫描设备'), findsWidgets);
     expect(find.text('中文'), findsOneWidget); // 存储语言覆盖系统英文
+  });
+
+  testWidgets('v7c 断连弹窗：草稿保留，重连原位恢复，返回列表回扫描', (
+    tester,
+  ) async {
+    final source = FakeSource();
+    final device = FakeCtDevice();
+    final link = StreamController<bool>.broadcast();
+    final controller = wiredController(
+      source,
+      device,
+      linkEvents: (_) => link.stream,
+    );
+    addTearDown(source.close);
+    addTearDown(device.close);
+    addTearDown(link.close);
+    addTearDown(controller.dispose);
+
+    await pumpApp(tester, controller);
+    await settle(tester);
+    source.emit(sampleCandidate());
+    await settle(tester);
+    await tester.tap(find.text('连接'));
+    await settle(tester);
+    await tester.tap(find.text('Wi-Fi 联网'));
+    await settle(tester);
+    await tester.enterText(find.byType(TextField).at(0), 'Home-2.4G');
+    await settle(tester, 2);
+    expect(controller.phase, SessionPhase.editingConfig);
+
+    // 链路断开 → 弹窗压在冻结的表单上（草稿不动）。
+    link.add(false);
+    await settle(tester, 2);
+    expect(controller.phase, SessionPhase.linkLost);
+    expect(find.text('连接已断开'), findsOneWidget);
+    expect(find.textContaining('配置内容全部保留'), findsOneWidget);
+    expect(find.text('重新连接'), findsOneWidget);
+    expect(find.text('返回设备列表'), findsOneWidget);
+
+    // 重连成功 → 弹窗消失、原位回表单、已填内容还在。
+    await tester.tap(find.text('重新连接'));
+    await settle(tester);
+    expect(controller.phase, SessionPhase.editingConfig);
+    expect(find.text('连接已断开'), findsNothing);
+    expect(find.text('Home-2.4G'), findsWidgets);
+
+    // 再次断开 → 返回设备列表 → 回扫描，编辑轮清空。
+    link.add(false);
+    await settle(tester, 2);
+    expect(controller.phase, SessionPhase.linkLost);
+    await tester.tap(find.text('返回设备列表'));
+    await settle(tester);
+    expect(controller.phase, SessionPhase.scanning);
+    expect(controller.editingSections, isEmpty);
+    expect(controller.drafts, isEmpty);
+    // 泵过扫描窗口收敛回空态，收尾无挂起定时器。
+    await tester.pump(const Duration(seconds: 21));
+    expect(controller.phase, SessionPhase.scanEmpty);
   });
 }

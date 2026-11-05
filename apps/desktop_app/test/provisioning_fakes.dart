@@ -363,6 +363,22 @@ final class FakeCtDevice implements CtGattChannel {
   Future<void> close() => _d2c.close();
 }
 
+/// FakeCtDevice 加手动闸：armGate 后的下一批上行帧等 openGate 才放行，
+/// 用于把 config.set 摁在途（配合断连测试的 delivering 场景）。
+final class GatedFakeCtDevice extends FakeCtDevice {
+  Completer<void>? _gate;
+
+  void armGate() => _gate = Completer<void>();
+  void openGate() => _gate?.complete();
+
+  @override
+  Future<void> writeC2d(List<int> frame) async {
+    final gate = _gate;
+    if (gate != null && !gate.isCompleted) await gate.future;
+    await super.writeC2d(frame);
+  }
+}
+
 /// 全通道可用的探测替身（蓝牙就绪 + 一块启用的无线网卡）。
 DesktopEnvironmentProbe readyProbe() => DesktopEnvironmentProbe(
   probeBle: () async => const CtEnvironmentReport(

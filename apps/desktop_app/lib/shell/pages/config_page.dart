@@ -181,7 +181,8 @@ class _ConfigPageState extends State<ConfigPage> {
         final rejected = phase == SessionPhase.operationError;
         // The module list is the hub: it shows before the first open and
         // again on every back; the open module keeps its page through
-        // delivering / rejection.
+        // delivering / rejection. A dropped link freezes whatever view is
+        // up under a modal (drafts are kept, reconnect resumes in place).
         final onList = choosing || _activeSection == null;
         final left = Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -195,7 +196,7 @@ class _ConfigPageState extends State<ConfigPage> {
                 : _modulePane(c, l, delivering),
           ],
         );
-        return SingleChildScrollView(
+        final body = SingleChildScrollView(
           padding: const EdgeInsets.all(20),
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 1120),
@@ -229,7 +230,116 @@ class _ConfigPageState extends State<ConfigPage> {
             ),
           ),
         );
+        if (phase != SessionPhase.linkLost) return body;
+        // Scrim + dialog over the frozen form: the form stays visible (and
+        // dead) underneath, the dialog owns every interaction.
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            body,
+            ModalBarrier(
+              color: c.background.withValues(alpha: 0.62),
+              dismissible: false,
+            ),
+            Center(child: _linkLostDialog(c, l)),
+          ],
+        );
       },
+    );
+  }
+
+  /// Link-lost modal (v7c): explains the drop, keeps the drafts, offers
+  /// reconnect / back to the device list. NE101 sleeps ~1 min after its
+  /// config window opens, so the wake hint rides along with the body.
+  Widget _linkLostDialog(NLColors c, AppLocalizations l) {
+    final busy = controller.reconnecting;
+    return Container(
+      width: 430,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: c.card,
+        border: Border.all(color: c.border),
+        borderRadius: BorderRadius.circular(NLRadii.radiusLg),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.bluetooth_disabled, size: 18, color: c.error),
+              const SizedBox(width: 8),
+              Text(
+                l.linkLostTitle,
+                style: const TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text(
+            controller.linkLostDuringDelivery
+                ? l.linkLostDeliveringBody
+                : l.linkLostBody,
+            style: TextStyle(
+              fontSize: 12,
+              color: c.mutedForeground,
+              height: 1.55,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Container(
+            width: double.infinity,
+            decoration: BoxDecoration(
+              color: c.warningBg,
+              borderRadius: BorderRadius.circular(NLRadii.radiusMd),
+            ),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(Icons.tips_and_updates_outlined, size: 14, color: c.warning),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    l.linkLostWakeHint,
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: c.mutedForeground,
+                      height: 1.5,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (controller.linkReconnectFailed) ...[
+            const SizedBox(height: 10),
+            Text(
+              l.linkLostReconnectFailed,
+              style: TextStyle(fontSize: 11, color: c.error),
+            ),
+          ],
+          const SizedBox(height: 16),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              NLButton(
+                label: l.linkLostBackToList,
+                variant: NLButtonVariant.secondary,
+                onPressed: busy ? null : controller.rescan,
+              ),
+              const SizedBox(width: 8),
+              NLButton(
+                label: busy ? l.linkLostReconnecting : l.linkLostReconnect,
+                onPressed: busy ? null : controller.reconnectLink,
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 

@@ -74,11 +74,16 @@ class SettingsPage extends StatelessWidget {
                       Divider(height: 1, thickness: 1, color: c.border),
                       _toggleRow(
                         c,
-                        icon: Icons.dark_mode_outlined,
+                        icon: dark
+                            ? Icons.dark_mode_outlined
+                            : Icons.light_mode_outlined,
                         title: l.setTheme,
                         note: l.setThemeNote,
                         control: NLButton(
-                          label: dark ? l.themeToLight : l.themeToDark,
+                          // v7c: chip states the current theme, matching the
+                          // topbar toggle (a "Light" chip on a dark UI reads
+                          // as a bug).
+                          label: dark ? l.themeDark : l.themeLight,
                           variant: NLButtonVariant.secondary,
                           size: NLButtonSize.sm,
                           onPressed: onToggleTheme,

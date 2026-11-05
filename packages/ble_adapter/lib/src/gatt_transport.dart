@@ -25,6 +25,7 @@ final class CtProvGattTransport {
   final _events = StreamController<ProvEvent>.broadcast();
   final _frameErrors = StreamController<String>.broadcast();
   int _ignoredResponses = 0;
+  bool _closed = false;
 
   /// 设备主动事件（v2.0 仅 protocol.error）。
   Stream<ProvEvent> get events => _events.stream;
@@ -53,6 +54,7 @@ final class CtProvGattTransport {
 
   /// 停止泵送并释放流资源。
   Future<void> close() async {
+    _closed = true;
     // Cancellation and closing take effect immediately (a cancelled
     // subscription stops receiving), but their futures only settle after the
     // SDK drains internal queues — which some event loops (including the
@@ -65,6 +67,10 @@ final class CtProvGattTransport {
     unawaited(_events.close());
     unawaited(_frameErrors.close());
     for (final completer in _pending.values) {
+      // A sender still inside the write loop has not attached a listener to
+      // the completer yet; without ignore() the delivered error would surface
+      // as an unhandled async error before the sender's await can catch it.
+      completer.future.ignore();
       completer.completeError(
         StateError('transport closed before response arrived'),
       );
@@ -78,6 +84,9 @@ final class CtProvGattTransport {
     ProvRequest request, {
     Duration timeout = kDefaultRequestTimeout,
   }) async {
+    if (_closed) {
+      throw StateError('transport closed before request sent');
+    }
     if (_pending.containsKey(request.id)) {
       throw ArgumentError('request id ${request.id} already in flight');
     }
@@ -95,6 +104,10 @@ final class CtProvGattTransport {
         ),
       );
       for (final frame in frames) {
+        // A close mid-write (link lost) aborts the remaining fragments —
+        // the device drops the incomplete packet and the caller redelivers
+        // the whole config.set over a fresh link (idempotent overwrite).
+        if (_closed) break;
         await _channel.writeC2d(frame);
       }
       return await completer.future.timeout(timeout);

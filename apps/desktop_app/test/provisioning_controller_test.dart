@@ -3,6 +3,8 @@
 // 候选生命周期随扫描任务。
 library;
 
+import 'dart:async';
+
 import 'package:ble_universal/ble_universal.dart';
 import 'package:communication_domain/communication_domain.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -17,6 +19,7 @@ ProvisioningController makeController(
   FakeSource source, {
   DesktopEnvironmentProbe? probe,
   Future<CtGattChannel> Function(String, void Function(String))? connect,
+  Stream<bool> Function(String deviceId)? linkEvents,
   Duration scanTimeout = const Duration(seconds: 20),
   Duration sweepInterval = const Duration(seconds: 3),
 }) => ProvisioningController(
@@ -24,6 +27,8 @@ ProvisioningController makeController(
   discoverySource: source,
   establishPairing: (_) async {},
   connectChannel: connect ?? ((_, __) async => FakeCtDevice()),
+  // 默认空流：不测断连的用例不触碰 universal_ble 静态（测试环境无插件）。
+  linkEvents: linkEvents ?? ((_) => const Stream<bool>.empty()),
   scanTimeout: scanTimeout,
   sweepInterval: sweepInterval,
   // 旧用例语义是「自检过即进扫描」：零等待跳过倒计时。
@@ -34,9 +39,15 @@ ProvisioningController makeController(
 /// teardowns in the enclosing test scope.
 Future<ProvisioningController> connectedToCaps(
   FakeSource source,
-  FakeCtDevice device,
-) async {
-  final controller = makeController(source, connect: (_, __) async => device);
+  FakeCtDevice device, {
+  Future<CtGattChannel> Function(String, void Function(String))? connect,
+  Stream<bool> Function(String deviceId)? linkEvents,
+}) async {
+  final controller = makeController(
+    source,
+    connect: connect ?? ((_, __) async => device),
+    linkEvents: linkEvents,
+  );
   addTearDown(controller.dispose);
   addTearDown(source.close);
   addTearDown(device.close);
@@ -866,5 +877,140 @@ void main() {
         expect(controller.editingSections, ['wifi']);
       },
     );
+  });
+
+  group('link loss (v7c)', () {
+    test('drop during editing keeps the round; reconnect resumes in place', () async {
+      final source = FakeSource();
+      final device = FakeCtDevice();
+      final link = StreamController<bool>.broadcast();
+      addTearDown(link.close);
+      final controller = await connectedToCaps(
+        source,
+        device,
+        linkEvents: (_) => link.stream,
+      );
+
+      await controller.openSection('wifi');
+      controller.updateDraft(
+        const WifiSection(ssid: 'Home-2.4G', password: 'example-password'),
+      );
+
+      link.add(false);
+      await until(
+        () => controller.phase == SessionPhase.linkLost,
+        'drop did not fire',
+      );
+      expect(controller.linkLostDuringDelivery, isFalse);
+      expect(controller.editingSections, ['wifi']);
+      expect((controller.drafts['wifi'] as WifiSection).ssid, 'Home-2.4G');
+
+      await controller.reconnectLink();
+      expect(controller.phase, SessionPhase.editingConfig);
+      expect(controller.linkReconnectFailed, isFalse);
+      expect((controller.drafts['wifi'] as WifiSection).ssid, 'Home-2.4G');
+
+      // 幂等重发：恢复后的新会话上直接下发成功。
+      await controller.submit();
+      expect(controller.phase, SessionPhase.completed);
+      expect(device.lastConfigSet!.keys, ['wifi']);
+    });
+
+    test('reconnect failure stays on linkLost with the retry note', () async {
+      final source = FakeSource();
+      final device = FakeCtDevice();
+      final link = StreamController<bool>.broadcast();
+      addTearDown(link.close);
+      var connects = 0;
+      final controller = await connectedToCaps(
+        source,
+        device,
+        connect: (_, __) async {
+          connects++;
+          // Only the FIRST reconnect attempt fails; the retry connects.
+          if (connects == 2) throw Exception('device asleep');
+          return device;
+        },
+        linkEvents: (_) => link.stream,
+      );
+
+      await controller.openSection('wifi');
+      link.add(false);
+      await until(
+        () => controller.phase == SessionPhase.linkLost,
+        'drop did not fire',
+      );
+
+      await controller.reconnectLink();
+      expect(controller.phase, SessionPhase.linkLost); // 未恢复
+      expect(controller.linkReconnectFailed, isTrue);
+
+      // 第三次连接成功 → 仍可恢复编辑（重试提示清除）。
+      await controller.reconnectLink();
+      expect(controller.phase, SessionPhase.editingConfig);
+      expect(controller.linkReconnectFailed, isFalse);
+    });
+
+    test('drop during delivering discards the late result (idempotent redo)', () async {
+      final source = FakeSource();
+      final device = GatedFakeCtDevice();
+      final link = StreamController<bool>.broadcast();
+      addTearDown(link.close);
+      final controller = await connectedToCaps(
+        source,
+        device,
+        linkEvents: (_) => link.stream,
+      );
+
+      await controller.openSection('wifi');
+      controller.updateDraft(
+        const WifiSection(ssid: 'Home-2.4G', password: 'example-password'),
+      );
+      device.armGate(); // config.set 摁在途
+      unawaited(controller.submit());
+      await until(
+        () => controller.phase == SessionPhase.delivering,
+        'submit did not reach delivering',
+      );
+
+      link.add(false);
+      await until(
+        () => controller.phase == SessionPhase.linkLost,
+        'drop did not fire',
+      );
+      expect(controller.linkLostDuringDelivery, isTrue);
+
+      // 放行被摁住的首帧：close 已中止剩余分片，设备永远收不到完整包
+      // ——这正是幂等重发的场景；迟到结果按当前相位丢弃，界面停在弹窗。
+      device.openGate();
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(controller.phase, SessionPhase.linkLost);
+      expect(controller.deliveryResult, isNull);
+      expect(device.lastConfigSet, isNull);
+    });
+
+    test('rescan from linkLost clears the round and returns to scanning', () async {
+      final source = FakeSource();
+      final device = FakeCtDevice();
+      final link = StreamController<bool>.broadcast();
+      addTearDown(link.close);
+      final controller = await connectedToCaps(
+        source,
+        device,
+        linkEvents: (_) => link.stream,
+      );
+
+      await controller.openSection('wifi');
+      link.add(false);
+      await until(
+        () => controller.phase == SessionPhase.linkLost,
+        'drop did not fire',
+      );
+
+      await controller.rescan();
+      expect(controller.phase, SessionPhase.scanning);
+      expect(controller.editingSections, isEmpty);
+      expect(controller.drafts, isEmpty);
+    });
   });
 }

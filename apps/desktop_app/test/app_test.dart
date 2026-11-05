@@ -42,9 +42,11 @@ void main() {
     expect(find.text('未发现设备'), findsNothing);
     expect(find.text('EN'), findsOneWidget);
 
-    await tester.tap(find.text('Dark'));
+    // v7c: the theme chip states the CURRENT theme (same convention as the
+    // language button) — light start shows Light; tapping flips to Dark.
+    await tester.tap(find.text('Light'));
     await tester.pump();
-    expect(find.text('Light'), findsOneWidget);
+    expect(find.text('Dark'), findsOneWidget);
 
     await tester.tap(find.text('EN'));
     await tester.pump();

@@ -7,7 +7,6 @@ import '../l10n/app_localizations.dart';
 import '../provisioning/provisioning_controller.dart';
 import 'pages/config_page.dart';
 import 'pages/connect_page.dart';
-import 'pages/empty_page.dart';
 import 'pages/history_page.dart';
 import 'pages/qr_guide_page.dart';
 import 'pages/result_page.dart';
@@ -122,10 +121,6 @@ class _AppShellState extends State<AppShell> {
       case 'flow':
         return switch (controller.pageForPhase) {
           'selfcheck' => SelfcheckPage(controller: controller),
-          'empty' => EmptyPage(
-            controller: controller,
-            onOpenGuide: _openGuide,
-          ),
           'connect' => ConnectPage(controller: controller),
           'config' => ConfigPage(controller: controller),
           'result' => ResultPage(controller: controller),
@@ -299,15 +294,20 @@ class _AppShellState extends State<AppShell> {
             ),
           ),
           const SizedBox(width: 6),
-          NLButton(
-            label: widget.dark ? l.themeToLight : l.themeToDark,
-            // Icon mirrors the direction the click switches to.
-            icon: widget.dark
-                ? Icons.light_mode_outlined
-                : Icons.dark_mode_outlined,
-            variant: NLButtonVariant.ghost,
-            size: NLButtonSize.sm,
-            onPressed: widget.onToggleTheme,
+          // v7c: the chip states the CURRENT theme (same convention as the
+          // language button — a "Dark" chip on a light UI reads as a bug);
+          // the tooltip names the action.
+          Tooltip(
+            message: l.tipToggleTheme,
+            child: NLButton(
+              label: widget.dark ? l.themeDark : l.themeLight,
+              icon: widget.dark
+                  ? Icons.dark_mode_outlined
+                  : Icons.light_mode_outlined,
+              variant: NLButtonVariant.ghost,
+              size: NLButtonSize.sm,
+              onPressed: widget.onToggleTheme,
+            ),
           ),
         ],
       ),

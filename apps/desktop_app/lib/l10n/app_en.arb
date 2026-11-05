@@ -17,8 +17,9 @@
   "navResult": "Result",
   "topbarNotConnected": "Not connected",
   "topbarConnected": "Connected",
-  "themeToDark": "Dark",
-  "themeToLight": "Light",
+  "themeDark": "Dark",
+  "themeLight": "Light",
+  "tipToggleTheme": "Switch light/dark theme",
   "m0PlaceholderNote": "M0 placeholder — domain wiring lands in M1/M2",
   "badgePassCount": "Pass {count}",
   "@badgePassCount": { "placeholders": { "count": { "type": "int" } } },
@@ -256,5 +257,13 @@
   "setThemeNote": "Light or dark (also in the top bar)",
   "setBle": "Bluetooth adapter",
   "setAp": "Wi-Fi adapter (AP channel)",
-  "setApNote": "AP enumeration needs admin rights; the channel degrades without them"
+  "setApNote": "AP enumeration needs admin rights; the channel degrades without them",
+  "linkLostTitle": "Link lost",
+  "linkLostBody": "The Bluetooth link to the device dropped. Everything you filled in is kept — wake the device again, then reconnect.",
+  "linkLostDeliveringBody": "The link dropped while the config was being delivered, so the device may not have saved every change. Your entries are kept — reconnect and deliver once more; re-delivering is safe and never writes conflicting config.",
+  "linkLostWakeHint": "The device sleeps after about 1 minute of inactivity: press the config button to wake it (LED blinking fast), then reconnect.",
+  "linkLostReconnect": "Reconnect",
+  "linkLostReconnecting": "Connecting…",
+  "linkLostReconnectFailed": "Reconnect failed — make sure the device is awake and try again.",
+  "linkLostBackToList": "Back to device list"
 }

@@ -30,6 +30,7 @@ class ProvisioningController extends ChangeNotifier {
       void Function(String step) onStep,
     )?
     connectChannel,
+    Stream<bool> Function(String deviceId)? linkEvents,
     this.scanTimeout = const Duration(seconds: 20),
     this.ttl = const Duration(seconds: 12),
     this.selfCheckHold = const Duration(seconds: 5),
@@ -41,7 +42,8 @@ class ProvisioningController extends ChangeNotifier {
        _connect =
            connectChannel ??
            ((deviceId, onStep) =>
-               UniversalCtGattChannel.open(deviceId, onStep: onStep)) {
+               UniversalCtGattChannel.open(deviceId, onStep: onStep)),
+       _linkEvents = linkEvents ?? universalLinkEvents {
     _machine = ProvisioningMachine(
       onStopSources: _stopSources,
       onReleaseLink: _releaseLink,
@@ -73,6 +75,7 @@ class ProvisioningController extends ChangeNotifier {
     void Function(String step) onStep,
   )
   _connect;
+  final Stream<bool> Function(String deviceId) _linkEvents;
 
   late final ProvisioningMachine _machine;
   late final StreamSubscription<SessionPhase> _phaseSub;
@@ -85,6 +88,19 @@ class ProvisioningController extends ChangeNotifier {
 
   CtGattChannel? _channel;
   CtSessionClient? _session;
+
+  /// 链路断开监听（能力读取成功后订阅；断开/释放时取消）。
+  StreamSubscription<bool>? _linkSub;
+
+  /// 重新连接是否在途（弹窗按钮禁用态）。
+  bool get reconnecting => _reconnecting;
+  bool _reconnecting = false;
+
+  /// 上次重新连接未成功（弹窗内联提示；再次尝试前清除）。
+  bool linkReconnectFailed = false;
+
+  /// 断开发生在下发中（弹窗文案变体：引导幂等重发）。
+  bool linkLostDuringDelivery = false;
 
   /// 自检结果（首次完成后保持，供各页展示通道状态）。
   EnvironmentCheckReport? environmentReport;
@@ -138,14 +154,15 @@ class ProvisioningController extends ChangeNotifier {
   List<DiscoveryCandidate> get candidates => _registry.snapshot;
 
   /// 状态机相位 → 流程页 id（壳据此切换全页工作区；v6 交互：扫描/结果
-  /// 同页呈现，能力与表单合并为单一配置页）。
+  /// 同页呈现，能力与表单合并为单一配置页；空结果不换页——扫描页原位
+  /// 提示并保留扫码添加入口）。
   String get pageForPhase => switch (_machine.phase) {
     SessionPhase.selfChecking => 'selfcheck',
     SessionPhase.scanning ||
     SessionPhase.resultsAvailable ||
     SessionPhase.guideScanning ||
-    SessionPhase.showingGuide => 'scan',
-    SessionPhase.scanEmpty => 'empty',
+    SessionPhase.showingGuide ||
+    SessionPhase.scanEmpty => 'scan',
     SessionPhase.connecting ||
     SessionPhase.readingCapabilities ||
     SessionPhase.connectionError ||
@@ -153,7 +170,8 @@ class ProvisioningController extends ChangeNotifier {
     SessionPhase.choosingSections ||
     SessionPhase.editingConfig ||
     SessionPhase.delivering ||
-    SessionPhase.operationError => 'config',
+    SessionPhase.operationError ||
+    SessionPhase.linkLost => 'config',
     SessionPhase.completed => 'result',
     SessionPhase.cleaning => 'scan',
   };
@@ -330,6 +348,9 @@ class ProvisioningController extends ChangeNotifier {
       onStep('reading capabilities');
       capabilities = await session.fetchCapabilities();
       _machine.capabilitiesRead();
+      // 断连检测从这里开始：连接/读能力阶段的失败已有各自的错误页，
+      // 配置会话期的断链才走 linkLost 弹窗路径。
+      _subscribeLink(deviceId);
     } on ProvSessionException catch (error) {
       if (_machine.phase == SessionPhase.readingCapabilities) {
         await _machine.failCapabilities(error.reason, error.message);
@@ -366,6 +387,77 @@ class ProvisioningController extends ChangeNotifier {
     await selectCandidate(candidate);
   }
 
+  // ---- 断连检测（配置会话期）----
+
+  /// 订阅链路状态（连接建立后调用；先退订旧订阅，重连后复用）。
+  void _subscribeLink(String deviceId) {
+    _linkSub?.cancel();
+    _linkSub = _linkEvents(deviceId).listen(
+      (connected) {
+        if (!connected) _onLinkDropped();
+      },
+      onError: (Object _) {
+        // 链路状态上报尽力而为：监听失败不阻断会话。
+      },
+    );
+  }
+
+  /// 链路断开：只对配置会话期相位生效（自残式断开——会话收尾/清理——
+  /// 相位已离开本组，事件自然被过滤）。编辑中的草稿全保留。
+  void _onLinkDropped() {
+    switch (_machine.phase) {
+      case SessionPhase.choosingSections:
+      case SessionPhase.editingConfig:
+      case SessionPhase.delivering:
+      case SessionPhase.operationError:
+        break;
+      default:
+        return;
+    }
+    linkLostDuringDelivery = _machine.phase == SessionPhase.delivering;
+    _linkSub?.cancel();
+    _linkSub = null;
+    unawaited(_releaseLink());
+    _machine.markLinkLost();
+    _reconnecting = false;
+    linkReconnectFailed = false;
+    notifyListeners();
+  }
+
+  /// 断连弹窗的「重新连接」：与首次选择同一条链（配对 → 通道 → 会话 →
+  /// device.info/能力）。成功则原位恢复编辑（草稿未动）；失败停在弹窗
+  /// 并给出重试提示。设备须处于唤醒状态——NE101 配置窗口约 1 分钟后
+  /// 自动静睡，烧穿窗口是断连的最常见原因，文案负责引导重新唤醒。
+  Future<void> reconnectLink() async {
+    if (_machine.phase != SessionPhase.linkLost || _reconnecting) return;
+    final candidate = selectedCandidate;
+    if (candidate == null) return;
+    _reconnecting = true;
+    linkReconnectFailed = false;
+    notifyListeners();
+    try {
+      final deviceId = candidate.candidateId;
+      await _pair(deviceId);
+      final channel = await _connect(deviceId, (_) {});
+      _channel = channel;
+      final session = CtSessionClient(channel);
+      _session = session;
+      await session.open();
+      deviceInfo = await session.fetchDeviceInfo();
+      capabilities = await session.fetchCapabilities();
+      _subscribeLink(deviceId);
+      _machine.linkRestored(editing: editingSections.isNotEmpty);
+    } catch (error) {
+      // 失败链路半开也要收干净，弹窗保留、可再次尝试。
+      await _releaseLink();
+      linkReconnectFailed = true;
+      _machine.reportProblem('link_reconnect_failed', '$error');
+    } finally {
+      _reconnecting = false;
+      notifyListeners();
+    }
+  }
+
   /// QR guide: highlight the row whose MAC suffix was entered/parsed.
   void focusQrCandidate(String suffix) {
     final normalized = suffix.toUpperCase();
@@ -374,9 +466,11 @@ class ProvisioningController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// 空结果/结果页重扫：清理链路与源，回扫描循环重新开始。
+  /// 空结果/结果页重扫：清理链路与源，回扫描循环重新开始。linkLost 的
+  /// 「返回设备列表」也从这里走——编辑轮与草稿一并丢弃。
   Future<void> rescan() async {
     await _machine.cleanup();
+    _clearEditingState();
     notifyListeners();
   }
 
@@ -591,6 +685,12 @@ class ProvisioningController extends ChangeNotifier {
     notifyListeners();
     try {
       deliveryResult = await session.setConfig(payload.payload);
+      // 断连可能发生在下发在途：linkLost 已接管界面，迟到结果按
+      // 当前相位丢弃（幂等重发覆盖一切，收据在重发成功后补记）。
+      if (_machine.phase != SessionPhase.delivering) {
+        deliveryResult = null;
+        return;
+      }
       _machine.deliveryStored();
       // Receipt for the history page: captured at the moment the device
       // confirmed persistence (before the session is closed).
@@ -605,10 +705,14 @@ class ProvisioningController extends ChangeNotifier {
       );
     } on ProvSessionException catch (error) {
       deliveryResult = null;
-      _machine.failOperation(error.reason, error.message);
+      if (_machine.phase == SessionPhase.delivering) {
+        _machine.failOperation(error.reason, error.message);
+      }
     } catch (error) {
       deliveryResult = null;
-      _machine.failOperation('config_set_failed', '$error');
+      if (_machine.phase == SessionPhase.delivering) {
+        _machine.failOperation('config_set_failed', '$error');
+      }
     }
     notifyListeners();
   }
@@ -832,8 +936,11 @@ class ProvisioningController extends ChangeNotifier {
     _scanTimer = null;
   }
 
-  /// 断开链路并释放会话资源（幂等，供机器错误/清理路径调用）。
+  /// 断开链路并释放会话资源（幂等，供机器错误/清理路径调用）。同时停掉
+  /// 链路监听——主动断开不该再触发 linkLost。
   Future<void> _releaseLink() async {
+    _linkSub?.cancel();
+    _linkSub = null;
     final session = _session;
     _session = null;
     final channel = _channel;
@@ -851,6 +958,7 @@ class ProvisioningController extends ChangeNotifier {
     _sweepTimer?.cancel();
     _sweepTimer = null;
     _cancelSelfCheckHold();
+    _linkSub?.cancel();
     _phaseSub.cancel();
     _problemSub.cancel();
     unawaited(_releaseLink());

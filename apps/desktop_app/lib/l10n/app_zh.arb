@@ -17,8 +17,9 @@
   "navResult": "下发结果",
   "topbarNotConnected": "未连接",
   "topbarConnected": "已连接",
-  "themeToDark": "深色",
-  "themeToLight": "浅色",
+  "themeDark": "深色",
+  "themeLight": "浅色",
+  "tipToggleTheme": "切换深浅色",
   "m0PlaceholderNote": "M0 占位页 — M1/M2 起接入领域层",
   "badgePassCount": "通过 {count}",
   "@badgePassCount": { "placeholders": { "count": { "type": "int" } } },
@@ -256,5 +257,13 @@
   "setThemeNote": "浅色或深色（右上角同步切换）",
   "setBle": "蓝牙适配器",
   "setAp": "无线网卡（AP 通道）",
-  "setApNote": "AP 热点枚举需要管理员权限，未提权时该通道自动降级"
+  "setApNote": "AP 热点枚举需要管理员权限，未提权时该通道自动降级",
+  "linkLostTitle": "连接已断开",
+  "linkLostBody": "与设备的蓝牙连接已断开，已填写的配置内容全部保留。请重新唤醒设备后重新连接。",
+  "linkLostDeliveringBody": "连接在配置下发时断开，设备可能没有保存全部修改。已填内容保留——重新连接后再点一次下发即可，重复下发不会写入冲突配置。",
+  "linkLostWakeHint": "设备约 1 分钟无操作会自动休眠：请短按设备上的配置键唤醒（指示灯快闪），再重新连接。",
+  "linkLostReconnect": "重新连接",
+  "linkLostReconnecting": "连接中…",
+  "linkLostReconnectFailed": "重新连接未成功——请确认设备已唤醒后重试。",
+  "linkLostBackToList": "返回设备列表"
 }
