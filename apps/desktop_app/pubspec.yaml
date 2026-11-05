@@ -60,6 +60,7 @@ msix_config:
   architecture: x64
   capabilities: bluetooth,webcam
   build_windows: false
+  install_certificate: false
   output_path: build\msix
 flutter:
   uses-material-design: true
