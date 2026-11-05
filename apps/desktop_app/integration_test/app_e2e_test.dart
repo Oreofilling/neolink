@@ -101,11 +101,12 @@ void main() {
       }
     }
 
-    // Both receipts landed in this launch's history.
+    // Both receipts landed in this launch's history. Rows lead with the
+    // device name (serial is the fallback when the name is empty).
     await tester.tap(find.text('历史会话'));
     await settle(tester);
     expect(find.text('本次运行记录'), findsOneWidget);
-    expect(find.text('NL24Q4001234'), findsNWidgets(2));
+    expect(find.text('NE101-AABBCC'), findsNWidgets(2));
 
     controller.dispose();
   });
@@ -163,6 +164,8 @@ void main() {
     addTearDown(device.close);
 
     await pumpApp(tester, controller);
+    await settle(tester); // self-check walks its channels
+    await tester.pump(const Duration(seconds: 3)); // through the 2s hold
     await settle(tester);
     source.emit(sampleCandidate());
     await settle(tester);
