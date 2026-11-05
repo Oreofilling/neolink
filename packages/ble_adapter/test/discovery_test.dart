@@ -10,7 +10,8 @@ void main() {
       final dev = parseAdvertisingData(v.advData);
       expect(dev, isNotNull, reason: '${v.id} 合法广播必须可解析');
       final e = v.expect;
-      expect(dev!.formatVersion, e['formatVersion'], reason: '${v.id} format_version');
+      expect(dev!.formatVersion, e['formatVersion'],
+          reason: '${v.id} format_version');
       if (e['formatVersionSupported'] == false) {
         // format_version 不支持：停止解释负载字段（§4.2.2）
         expect(dev.formatVersionSupported, isFalse, reason: '${v.id} 不支持标记');
@@ -27,7 +28,8 @@ void main() {
         expect(dev.modelCodeKnown, isFalse, reason: '${v.id} 未知型号不拒绝');
       }
       expect(dev.busy, e['busy'], reason: '${v.id} BUSY 位');
-      expect(dev.provisionable, e['provisionable'], reason: '${v.id} PROVISIONABLE 位');
+      expect(dev.provisionable, e['provisionable'],
+          reason: '${v.id} PROVISIONABLE 位');
     }
   });
 
@@ -54,7 +56,8 @@ void main() {
         expect(dev.nameSource, NameSource.derived, reason: '${v.id} 名称来源');
       }
       // 展示名恒非空：广播名缺失或非法时回退临时名。
-      expect(dev.displayName, e['name'] ?? e['tempDisplayName'], reason: '${v.id} 展示名');
+      expect(dev.displayName, e['name'] ?? e['tempDisplayName'],
+          reason: '${v.id} 展示名');
       if (e['invalidCharset'] == true) {
         expect(dev.nameInvalid, isTrue, reason: '${v.id} 非法字符集标记');
       }
@@ -66,18 +69,22 @@ void main() {
     // 各 META 向量对应自己的 Scan Response 名称（§4.3 要求两者一致）。
     final rspById = {
       'meta-baseline': tv.kNameVectors[0].scanResponse,
-      'meta-max-20': tv.kNameVectors.firstWhere((n) => n.id == 'name-max-17').scanResponse,
+      'meta-max-20':
+          tv.kNameVectors.firstWhere((n) => n.id == 'name-max-17').scanResponse,
       'meta-name-mismatch': tv.kNameVectors[0].scanResponse,
     };
     for (final v in tv.kMetaVectors) {
       final meta = parseMeta(v.meta);
       final e = v.expect;
       expect(meta, isNotNull, reason: '${v.id} META 必须可解析');
-      expect(meta!.protocolVersion, e['protocolVersion'], reason: '${v.id} 协议版本');
+      expect(meta!.protocolVersion, e['protocolVersion'],
+          reason: '${v.id} 协议版本');
       expect(meta.busy, e['busy'], reason: '${v.id} BUSY');
-      expect(meta.provisionable, e['provisionable'], reason: '${v.id} PROVISIONABLE');
+      expect(meta.provisionable, e['provisionable'],
+          reason: '${v.id} PROVISIONABLE');
       expect(meta.name, e['name'], reason: '${v.id} 名称');
-      final advertisedName = applyScanResponse(base, rspById[v.id]).advertisedName;
+      final advertisedName =
+          applyScanResponse(base, rspById[v.id]).advertisedName;
       expect(meta.matches(advertisedName), e['matchesScanResponse'],
           reason: '${v.id} 与广播名一致性');
     }
@@ -86,6 +93,7 @@ void main() {
   test('META 解析：非法输入返回 null', () {
     expect(parseMeta([]), isNull, reason: '空');
     expect(parseMeta([0x02, 0x00, 0x01, 0x41]), isNull, reason: '协议版本不支持');
-    expect(parseMeta([0x01, 0x00, 0x05, 0x41]), isNull, reason: 'name_length 与长度不符');
+    expect(parseMeta([0x01, 0x00, 0x05, 0x41]), isNull,
+        reason: 'name_length 与长度不符');
   });
 }

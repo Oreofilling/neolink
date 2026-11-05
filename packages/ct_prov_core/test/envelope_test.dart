@@ -10,8 +10,10 @@ void main() {
   String reencode(ProvEnvelope envelope) => switch (envelope) {
         ProvRequest r => encodeRequest(id: r.id, op: r.opName, data: r.data),
         ProvResponse r => r.ok
-            ? encodeResponse(id: r.id, op: r.opName, ok: true, data: r.data ?? {})
-            : encodeResponse(id: r.id, op: r.opName, ok: false, error: r.error!),
+            ? encodeResponse(
+                id: r.id, op: r.opName, ok: true, data: r.data ?? {})
+            : encodeResponse(
+                id: r.id, op: r.opName, ok: false, error: r.error!),
         ProvEvent e => encodeEvent(seq: e.seq, event: e.event, data: e.data),
       };
 
@@ -37,12 +39,15 @@ void main() {
           expect(r.ok, e['ok'], reason: '${v.id} ok');
           if (r.ok) {
             // 个别向量（如无法关联的响应）的 expect 省略 data 键，按空对象比较。
-            expect(r.data, e['data'] ?? const <String, Object?>{}, reason: '${v.id} data');
+            expect(r.data, e['data'] ?? const <String, Object?>{},
+                reason: '${v.id} data');
           } else {
             final wireError = e['error'] as Map;
             expect(r.error, isNotNull, reason: '${v.id} 失败必带 error');
-            expect(r.error!.codeName, wireError['code'], reason: '${v.id} 错误码原文');
-            expect(r.error!.code!.wireName, wireError['code'], reason: '${v.id} 错误码枚举映射');
+            expect(r.error!.codeName, wireError['code'],
+                reason: '${v.id} 错误码原文');
+            expect(r.error!.code!.wireName, wireError['code'],
+                reason: '${v.id} 错误码枚举映射');
           }
         case ProvEvent ev:
           expect(e['kind'], 'event', reason: '${v.id} 种类');
@@ -64,7 +69,8 @@ void main() {
   test('非法信封：异常理由与向量标注一致', () {
     for (final v in tv.kEnvelopeVectors) {
       if (v.invalidReason == null) continue;
-      expect(() => decodeEnvelope(v.wireBytes),
+      expect(
+          () => decodeEnvelope(v.wireBytes),
           throwsA(isA<ProvEnvelopeException>()
               .having((err) => err.reason, 'reason', v.invalidReason)),
           reason: '${v.id} 非法理由');
@@ -86,7 +92,8 @@ void main() {
     );
     // 响应 op 不带 .result 后缀 → invalid_shape
     expect(
-      () => decodeEnvelope(utf8.encode('{"id":1,"op":"device.info.get","ok":true,"data":{}}')),
+      () => decodeEnvelope(
+          utf8.encode('{"id":1,"op":"device.info.get","ok":true,"data":{}}')),
       throwsA(isA<ProvEnvelopeException>()
           .having((err) => err.reason, 'reason', 'invalid_shape')),
     );
@@ -94,9 +101,15 @@ void main() {
 
   test('错误码枚举：九个 wireName 与协议 §12 一致', () {
     const wireNames = {
-      'INVALID_MESSAGE', 'UNSUPPORTED_VERSION', 'UNSUPPORTED_OPERATION',
-      'INVALID_ARGUMENT', 'BUSY', 'SECTION_NOT_SUPPORTED',
-      'FIELD_NOT_SUPPORTED', 'STORAGE_FAILED', 'INTERNAL_ERROR',
+      'INVALID_MESSAGE',
+      'UNSUPPORTED_VERSION',
+      'UNSUPPORTED_OPERATION',
+      'INVALID_ARGUMENT',
+      'BUSY',
+      'SECTION_NOT_SUPPORTED',
+      'FIELD_NOT_SUPPORTED',
+      'STORAGE_FAILED',
+      'INTERNAL_ERROR',
     };
     expect(ProvErrorCode.values.map((c) => c.wireName).toSet(), wireNames);
     expect(provErrorCodeFromWire('BUSY'), ProvErrorCode.busy);

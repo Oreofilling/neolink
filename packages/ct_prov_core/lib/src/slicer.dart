@@ -25,17 +25,22 @@ List<List<int>> slicePacket({
     throw ArgumentError('packet payload must not be empty');
   }
   if (bytes.length > kMaxLogicalPacketBytes) {
-    throw ArgumentError('packet exceeds limit: ${bytes.length} > $kMaxLogicalPacketBytes');
+    throw ArgumentError(
+        'packet exceeds limit: ${bytes.length} > $kMaxLogicalPacketBytes');
   }
   final count = (bytes.length + payloadMax - 1) ~/ payloadMax;
   if (count > 255) {
-    throw ArgumentError('needs $count fragments at MTU $mtu, over fragment_count limit 255');
+    throw ArgumentError(
+        'needs $count fragments at MTU $mtu, over fragment_count limit 255');
   }
   final frames = <List<int>>[
     for (var i = 0; i < bytes.length; i += payloadMax)
       [
         kFragmentMagicVersion, kind.wireByte, messageId % 256, //
-        i ~/ payloadMax, count, ...bytes.sublist(i, i + payloadMax > bytes.length ? bytes.length : i + payloadMax),
+        i ~/ payloadMax,
+        count,
+        ...bytes.sublist(
+            i, i + payloadMax > bytes.length ? bytes.length : i + payloadMax),
       ],
   ];
   return frames;

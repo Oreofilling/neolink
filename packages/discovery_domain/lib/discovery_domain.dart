@@ -7,6 +7,8 @@ library;
 
 import 'dart:async';
 
+export 'src/composite_discovery_source.dart';
+
 enum DiscoveryChannel { ble, accessPoint, ctDisc }
 
 /// 通道可用性结论：limited 表示能力受限（可继续但降级标注，如无线网卡

@@ -79,7 +79,8 @@ final class FragmentAssembler {
   FragmentAssembler({required this.mtu})
       : payloadMax = mtu - 3 - kFragmentHeaderSize {
     if (payloadMax < 1) {
-      throw ArgumentError('mtu too small: $mtu (payload_max must be at least 1)');
+      throw ArgumentError(
+          'mtu too small: $mtu (payload_max must be at least 1)');
     }
   }
 

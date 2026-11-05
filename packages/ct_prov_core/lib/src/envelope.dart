@@ -14,7 +14,8 @@ sealed class ProvEnvelope {
 
 /// 请求信封 {id, op, data}。未知 op 保留原文、枚举映射为 null。
 final class ProvRequest extends ProvEnvelope {
-  const ProvRequest({required this.id, required this.opName, required this.data});
+  const ProvRequest(
+      {required this.id, required this.opName, required this.data});
 
   final int id;
   final String opName;
@@ -134,7 +135,10 @@ ProvEvent _decodeEvent(Map<String, Object?> map) {
   final seq = map['seq'];
   final event = map['event'];
   final data = map['data'];
-  if (seq is! int || seq < 0 || event is! String || data is! Map<String, Object?>) {
+  if (seq is! int ||
+      seq < 0 ||
+      event is! String ||
+      data is! Map<String, Object?>) {
     throw const ProvEnvelopeException('invalid_shape');
   }
   return ProvEvent(seq: seq, event: event, data: data);
@@ -168,7 +172,8 @@ ProvResponse _decodeResponse(Map<String, Object?> map, int id, String op) {
     if (data != null && data is! Map<String, Object?>) {
       throw const ProvEnvelopeException('invalid_shape');
     }
-    return ProvResponse(id: id, opName: op, ok: true, data: data as Map<String, Object?>?);
+    return ProvResponse(
+        id: id, opName: op, ok: true, data: data as Map<String, Object?>?);
   }
   final error = map['error'];
   if (error is! Map<String, Object?>) {

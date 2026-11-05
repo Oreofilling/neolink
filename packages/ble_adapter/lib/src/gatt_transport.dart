@@ -12,7 +12,7 @@ import 'gatt_channel.dart';
 /// 默认请求超时：设备端最慢路径为扫描 + 写入，10 秒足够宽。
 const Duration kDefaultRequestTimeout = Duration(seconds: 10);
 
-final class CtProvGattTransport {
+final class CtProvGattTransport implements ProvTransport {
   CtProvGattTransport(this._channel);
 
   final CtGattChannel _channel;
@@ -53,6 +53,7 @@ final class CtProvGattTransport {
   }
 
   /// 停止泵送并释放流资源。
+  @override
   Future<void> close() async {
     _closed = true;
     // Cancellation and closing take effect immediately (a cancelled
@@ -80,6 +81,7 @@ final class CtProvGattTransport {
 
   /// 发送请求并等待同 id 响应。帧按序写出；响应经重组与信封解码后
   /// 按信封 id 关联。同 id 在途时重复发送直接抛 ArgumentError。
+  @override
   Future<ProvResponse> sendRequest(
     ProvRequest request, {
     Duration timeout = kDefaultRequestTimeout,

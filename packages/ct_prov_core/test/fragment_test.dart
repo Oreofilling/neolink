@@ -60,15 +60,18 @@ void main() {
         }
       }
       expect(rejected, isTrue, reason: '${v.id} 必须被拒绝');
-      expect(assembler.hasPartialAssembly, isFalse, reason: '${v.id} 拒绝后缓冲必须清空');
+      expect(assembler.hasPartialAssembly, isFalse,
+          reason: '${v.id} 拒绝后缓冲必须清空');
     }
   });
 
   test('缺片向量：全部帧喂完仍不完整（incomplete）', () {
-    final v = tv.kFragmentVectors.firstWhere((e) => e.id == 'frag-missing-last');
+    final v =
+        tv.kFragmentVectors.firstWhere((e) => e.id == 'frag-missing-last');
     final assembler = FragmentAssembler(mtu: v.mtu);
     for (final frame in v.frames) {
-      expect(assembler.feed(frame), isA<Assembling>(), reason: '${v.id} 不应完成也不应拒绝');
+      expect(assembler.feed(frame), isA<Assembling>(),
+          reason: '${v.id} 不应完成也不应拒绝');
     }
     expect(assembler.hasPartialAssembly, isTrue, reason: '${v.id} 组包悬挂等待末片');
   });
@@ -77,7 +80,8 @@ void main() {
   // 收到对端按链路实际 MTU 256 切片的 608B capabilities 响应（248/248/112 三片）。
   // 重组器不得因本地 MTU 认知不符而拒绝非末片。
   test('MTU 认知不一致：按 256 切片的多帧包，23 的重组器必须照样组起来', () {
-    const jsonText = '{"id":2,"op":"communication.capabilities.get.result","ok":true,'
+    const jsonText =
+        '{"id":2,"op":"communication.capabilities.get.result","ok":true,'
         '"data":{"sections":[{"name":"wifi","kind":"network","configurable":true,'
         '"scannable":true,"fields":["ssid","password"]},{"name":"cellular","kind":"network",'
         '"configurable":true,"scannable":false,"fields":["apn","username","password","pin","auth"]},'
@@ -111,7 +115,8 @@ void main() {
       mtu: 23,
       kind: ProvPacketKind.request,
       messageId: 9,
-      jsonText: '{"id":8,"op":"config.set","data":{"wifi":{"ssid":"CT-PROV-BENCH","password":"benchpass1"}}}',
+      jsonText:
+          '{"id":8,"op":"config.set","data":{"wifi":{"ssid":"CT-PROV-BENCH","password":"benchpass1"}}}',
     );
     expect(frames.length, greaterThan(1), reason: '该包必须为多片');
 
@@ -163,7 +168,16 @@ void main() {
 
   test('message_id 分配器：按方向独立、取模 256 回绕', () {
     final allocator = MessageIdAllocator(start: 254);
-    expect([allocator.next(), allocator.next(), allocator.next(), allocator.next()],
-        [254, 255, 0, 1]);
+    expect([
+      allocator.next(),
+      allocator.next(),
+      allocator.next(),
+      allocator.next()
+    ], [
+      254,
+      255,
+      0,
+      1
+    ]);
   });
 }

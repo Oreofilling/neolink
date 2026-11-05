@@ -81,22 +81,47 @@ final class DeviceInfoResult {
 
 /// F1 会话客户端：open → fetchDeviceInfo → closeSession → dispose。
 /// 请求 id（信封 id）由本层分配，分片 message id 由传输层分配。
+///
+/// 两种入口：默认构造走 BLE GATT 通道；[CtSessionClient.overTransport]
+/// 接管任意 [ProvTransport]（设备 softAP HTTP 等，技术设计 C-15：同一
+/// 会话语义，不同底层传输）。
 final class CtSessionClient {
-  CtSessionClient(this._channel);
+  CtSessionClient(CtGattChannel channel)
+      : _channel = channel,
+        _preopenedTransport = null;
 
-  final CtGattChannel _channel;
-  CtProvGattTransport? _transport;
+  /// 直接采用已建立的传输（softAP HTTP 等）。调用方负责传输生命周期：
+  /// [dispose] 会关闭传输，open 幂等。
+  CtSessionClient.overTransport(ProvTransport transport)
+      : _channel = null,
+        _preopenedTransport = transport;
+
+  final CtGattChannel? _channel;
+  final ProvTransport? _preopenedTransport;
+  ProvTransport? _transport;
   int _nextRequestId = 1;
 
   /// 启动传输泵（通道应已完成连接、配对加密与 D2C 订阅）。
   Future<void> open() async {
     if (_transport != null) return;
-    final transport = CtProvGattTransport(_channel);
+    final preopened = _preopenedTransport;
+    if (preopened != null) {
+      _transport = preopened;
+      return;
+    }
+    final channel = _channel;
+    if (channel == null) {
+      throw const ProvSessionException(
+        'not_open',
+        'no channel and no preopened transport',
+      );
+    }
+    final transport = CtProvGattTransport(channel);
     transport.start();
     _transport = transport;
   }
 
-  CtProvGattTransport _requireTransport() {
+  ProvTransport _requireTransport() {
     final transport = _transport;
     if (transport == null) {
       throw const ProvSessionException(

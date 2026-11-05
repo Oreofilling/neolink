@@ -1,0 +1,12 @@
+name: softap_transport
+description: CT-Prov softAP HTTP transport binding (protocol section 16, same session semantics as BLE)
+publish_to: none
+version: 0.1.0
+environment:
+  sdk: ^3.5.0
+dependencies:
+  ct_prov_core:
+    path: ../ct_prov_core
+dev_dependencies:
+  test: ^1.24.0
+  lints: ^4.0.0

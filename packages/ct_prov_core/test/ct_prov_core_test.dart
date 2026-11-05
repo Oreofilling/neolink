@@ -9,6 +9,7 @@ void main() {
 
   test('错误码 9 个且不含运行时联网错误', () {
     expect(ProvErrorCode.values.length, 9);
-    expect(ProvErrorCode.values.map((e) => e.wireName), isNot(contains('WIFI_AUTH_FAILED')));
+    expect(ProvErrorCode.values.map((e) => e.wireName),
+        isNot(contains('WIFI_AUTH_FAILED')));
   });
 }

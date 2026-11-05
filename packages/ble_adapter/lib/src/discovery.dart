@@ -6,8 +6,22 @@ library;
 
 /// Service UUID `7B1E0001-9D5B-4B5B-8F6D-2A4C0B7E0100` 的广播小端字节序。
 const List<int> kCtProvServiceUuidLe = [
-  0x00, 0x01, 0x7E, 0x0B, 0x4C, 0x2A, 0x6D, 0x8F,
-  0x5B, 0x4B, 0x5B, 0x9D, 0x01, 0x00, 0x1E, 0x7B,
+  0x00,
+  0x01,
+  0x7E,
+  0x0B,
+  0x4C,
+  0x2A,
+  0x6D,
+  0x8F,
+  0x5B,
+  0x4B,
+  0x5B,
+  0x9D,
+  0x01,
+  0x00,
+  0x1E,
+  0x7B,
 ];
 
 /// 已知 model_code 到型号名映射（未知型号不拒绝，仅无名）。
@@ -66,7 +80,9 @@ final class CtDiscoveredDevice {
 CtDiscoveredDevice? parseAdvertisingData(List<int> advData) {
   if (advData.length != 27) return null;
   // Flags：02 01 06；Service Data：Length 0x17 + AD Type 0x21 + UUID 小端。
-  if (advData[0] != 0x02 || advData[1] != 0x01 || advData[2] != 0x06) return null;
+  if (advData[0] != 0x02 || advData[1] != 0x01 || advData[2] != 0x06) {
+    return null;
+  }
   if (advData[3] != 0x17 || advData[4] != 0x21) return null;
   for (var i = 0; i < kCtProvServiceUuidLe.length; i++) {
     if (advData[5 + i] != kCtProvServiceUuidLe[i]) return null;
@@ -109,10 +125,13 @@ CtDiscoveredDevice? parseAdvertisingData(List<int> advData) {
 
 /// 应用 Scan Response（Complete Local Name）。null 表示本次未取到
 /// Scan Response，维持临时名。返回新对象，不改动原记录。
-CtDiscoveredDevice applyScanResponse(CtDiscoveredDevice device, List<int>? scanResponse) {
+CtDiscoveredDevice applyScanResponse(
+    CtDiscoveredDevice device, List<int>? scanResponse) {
   String? name;
   var invalid = false;
-  if (scanResponse != null && scanResponse.length >= 2 && scanResponse[1] == 0x09) {
+  if (scanResponse != null &&
+      scanResponse.length >= 2 &&
+      scanResponse[1] == 0x09) {
     final candidate = String.fromCharCodes(scanResponse.sublist(2));
     if (_namePattern.hasMatch(candidate)) {
       name = candidate;

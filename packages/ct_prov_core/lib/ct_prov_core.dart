@@ -8,3 +8,4 @@ export 'src/envelope.dart';
 export 'src/fragment.dart';
 export 'src/ops.dart';
 export 'src/slicer.dart';
+export 'src/transport.dart';

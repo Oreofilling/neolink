@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:discovery_domain/discovery_domain.dart';
 import 'package:test/test.dart';
 
@@ -210,4 +212,120 @@ void main() {
       expect(report.channel(DiscoveryChannel.ctDisc), isNull);
     });
   });
+
+  group('CompositeDiscoverySource', () {
+    // Minimal controllable source for the fan-in tests.
+    StreamController<DiscoveryCandidate>? emissions;
+    int startCalls = 0;
+    int stopCalls = 0;
+    final fake = _CountingSource.custom(
+      onStart: () => startCalls++,
+      onStop: () => stopCalls++,
+      stream: () => emissions!.stream,
+    );
+
+    setUp(() {
+      startCalls = 0;
+      stopCalls = 0;
+      emissions = StreamController<DiscoveryCandidate>.broadcast();
+    });
+
+    tearDown(() async {
+      await emissions?.close();
+      emissions = null;
+    });
+
+    test('fans in child streams and propagates start/stop', () async {
+      final composite = CompositeDiscoverySource([
+        fake,
+        _CountingSource.custom(
+          stream: () => const Stream<DiscoveryCandidate>.empty(),
+        ),
+      ]);
+      final received = <DiscoveryCandidate>[];
+      final sub = composite.candidates.listen(received.add);
+      await composite.start();
+      expect(startCalls, 1);
+
+      emissions!.add(
+        DiscoveryCandidate(
+          candidateId: 'ap:CT-AP-BBC6DC',
+          macSuffix: 'BBC6DC',
+          channels: const {DiscoveryChannel.accessPoint},
+          provisionable: true,
+          busy: false,
+          lastSeen: t0,
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(received.single.macSuffix, 'BBC6DC');
+
+      await composite.stop();
+      expect(stopCalls, 1);
+      await sub.cancel();
+    });
+
+    test('a failing child stream does not stop the healthy ones', () async {
+      final broken = StreamController<DiscoveryCandidate>.broadcast();
+      final composite = CompositeDiscoverySource([
+        _CountingSource.custom(stream: () => broken.stream),
+        fake,
+      ]);
+      final received = <DiscoveryCandidate>[];
+      final sub = composite.candidates.listen(received.add);
+      await composite.start();
+
+      broken.addError(StateError('wlan stack died'));
+      emissions!.add(
+        DiscoveryCandidate(
+          candidateId: 'ctdisc:84C102@Ethernet',
+          macSuffix: '84C102',
+          channels: const {DiscoveryChannel.ctDisc},
+          provisionable: true,
+          busy: false,
+          lastSeen: t0,
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(received.single.channels, const {DiscoveryChannel.ctDisc});
+
+      await composite.stop();
+      await sub.cancel();
+      await broken.close();
+    });
+
+    test('start/stop are idempotent through the composite', () async {
+      final composite = CompositeDiscoverySource([fake]);
+      await composite.start();
+      await composite.start();
+      expect(startCalls, 1);
+      await composite.stop();
+      await composite.stop();
+      expect(stopCalls, 1);
+    });
+  });
+}
+
+/// Test double implementing the port with injected behavior.
+class _CountingSource implements DiscoverySource {
+  _CountingSource.custom({
+    void Function()? onStart,
+    void Function()? onStop,
+    required Stream<DiscoveryCandidate> Function() stream,
+  })  : _onStart = onStart,
+        _onStop = onStop,
+        _stream = stream;
+
+  final void Function()? _onStart;
+  final void Function()? _onStop;
+  final Stream<DiscoveryCandidate> Function() _stream;
+
+  @override
+  Stream<DiscoveryCandidate> get candidates => _stream();
+
+  @override
+  Future<void> start() async => _onStart?.call();
+
+  @override
+  Future<void> stop() async => _onStop?.call();
 }

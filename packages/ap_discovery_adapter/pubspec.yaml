@@ -1,0 +1,13 @@
+name: ap_discovery_adapter
+description: Device-AP discovery channel adapter (Windows WLAN SSID scan to discovery candidates)
+publish_to: none
+version: 0.1.0
+environment:
+  sdk: ^3.5.0
+dependencies:
+  discovery_domain:
+    path: ../discovery_domain
+  ffi: ^2.1.0
+dev_dependencies:
+  test: ^1.24.0
+  lints: ^4.0.0
