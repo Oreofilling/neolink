@@ -13,7 +13,8 @@ import 'package:communication_domain/communication_domain.dart';
 import 'package:flutter/foundation.dart';
 // 能力侧的 ConfigSection 与 communication_domain 节类型重名：控制器
 // 语境里 ConfigSection 一律指节草稿，能力节只经 capabilities.sections 迭代。
-import 'package:provisioning_session/provisioning_session.dart' hide ConfigSection;
+import 'package:provisioning_session/provisioning_session.dart'
+    hide ConfigSection;
 
 import '../services/environment_probe.dart';
 import 'section_editing.dart';
@@ -406,6 +407,11 @@ class ProvisioningController extends ChangeNotifier {
   bool scanMore = false;
   String _scanCursor = '';
 
+  /// Cached config.get read-back for this editing round: modules opened
+  /// later (one-module-at-a-time flow) prefill from the same snapshot
+  /// without a second request.
+  Map<String, Map<String, Object?>>? _storedConfig;
+
   /// communication.scan in flight (scan button state).
   bool get networkScanning => _networkScanning;
   bool _networkScanning = false;
@@ -420,10 +426,9 @@ class ProvisioningController extends ChangeNotifier {
   /// payload assembly and validation).
   Map<String, List<String>> get _editingSectionFields => {
     for (final name in editingSections)
-      name:
-          capabilities!.sections
-              .firstWhere((section) => section.name == name)
-              .fields,
+      name: capabilities!.sections
+          .firstWhere((section) => section.name == name)
+          .fields,
   };
 
   /// Selection done, enter the form (M3 entry): seed empty drafts ->
@@ -457,6 +462,44 @@ class ProvisioningController extends ChangeNotifier {
     unawaited(_prefillDrafts());
   }
 
+  /// Opens one section's module (one-module-at-a-time flow): the first open
+  /// starts the editing round with just that section; later opens join the
+  /// round in capability order, prefilled from the cached read-back. Drafts
+  /// of already-open modules are never touched, so back-and-forth moves
+  /// never lose entries. Reopening an open module is a pure view switch.
+  Future<void> openSection(String name) async {
+    final caps = capabilities;
+    if (caps == null) return;
+    final declared = caps.sections.any(
+      (section) => section.name == name && section.configurable,
+    );
+    if (!declared) return;
+    if (_machine.phase == SessionPhase.choosingSections) {
+      await beginEditing({name});
+      return;
+    }
+    if (_machine.phase != SessionPhase.editingConfig) return;
+    if (editingSections.contains(name)) return;
+    editingSections = [
+      for (final section in caps.sections)
+        if (section.configurable &&
+            (editingSections.contains(section.name) || section.name == name))
+          section.name,
+    ];
+    var draft = defaultSectionFor(name, declaredNetworks: declaredNetworks);
+    final stored = _storedConfig?[name];
+    if (stored != null) {
+      draft = prefillSection(
+        draft,
+        stored,
+        declaredFields: _editingSectionFields[name] ?? const [],
+      );
+    }
+    drafts = {...drafts, name: draft};
+    _validateSection(name);
+    notifyListeners();
+  }
+
   /// Fills drafts from config.get read-back (declared fields only; masked
   /// secrets are skipped).
   Future<void> _prefillDrafts() async {
@@ -472,6 +515,7 @@ class ProvisioningController extends ChangeNotifier {
       _machine.reportProblem('config_get_failed', '$error');
     }
     prefillDone = true;
+    _storedConfig = stored;
     if (stored == null) {
       notifyListeners();
       return;
@@ -516,10 +560,8 @@ class ProvisioningController extends ChangeNotifier {
 
   /// Assembles the payload (shared by form preview and submit; problems are
   /// grouped into sectionProblems).
-  ConfigPayload assembleDraftPayload() => assembleConfigPayload(
-    drafts,
-    sectionFields: _editingSectionFields,
-  );
+  ConfigPayload assembleDraftPayload() =>
+      assembleConfigPayload(drafts, sectionFields: _editingSectionFields);
 
   /// Submit: local validation failure stays on the form with per-field
   /// marks; success means config.set persisted (idempotent overwrite, §10),
@@ -539,8 +581,7 @@ class ProvisioningController extends ChangeNotifier {
     final payload = assembleDraftPayload();
     if (payload.problems.isNotEmpty) {
       sectionProblems = {
-        for (final problem in payload.problems)
-          problem.field: [problem],
+        for (final problem in payload.problems) problem.field: [problem],
       };
       notifyListeners();
       return;
@@ -607,6 +648,7 @@ class ProvisioningController extends ChangeNotifier {
     scanItems = const [];
     scanMore = false;
     _scanCursor = '';
+    _storedConfig = null;
   }
 
   /// Scans networks (§9): only capability-scannable sections; results feed
@@ -694,7 +736,6 @@ class ProvisioningController extends ChangeNotifier {
     updateDraft(next);
   }
 
-
   void _onPhaseChanged(SessionPhase phase) {
     if (phase == SessionPhase.scanning) _startScan();
     _syncSweepTimer(phase);
@@ -707,7 +748,8 @@ class ProvisioningController extends ChangeNotifier {
   /// 龄标注的重绘也由本计时器驱动。
   void _syncSweepTimer(SessionPhase phase) {
     final active =
-        phase == SessionPhase.scanning || phase == SessionPhase.resultsAvailable;
+        phase == SessionPhase.scanning ||
+        phase == SessionPhase.resultsAvailable;
     if (!active) {
       _sweepTimer?.cancel();
       _sweepTimer = null;

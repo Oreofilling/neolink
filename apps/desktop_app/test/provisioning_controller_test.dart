@@ -203,9 +203,11 @@ void main() {
     await controller.runSelfCheck();
     await until(() => source.startCount == 1, 'selfcheck did not start scan');
     // 出生即超过 TTL 的候选：首个 sweep tick 即被淘汰。
-    source.emit(sampleCandidate(seen: DateTime.now().subtract(
-      const Duration(seconds: 30),
-    )));
+    source.emit(
+      sampleCandidate(
+        seen: DateTime.now().subtract(const Duration(seconds: 30)),
+      ),
+    );
     await until(
       () => controller.phase == SessionPhase.resultsAvailable,
       'candidate did not move phase',
@@ -220,38 +222,41 @@ void main() {
   });
 
   // v6 连接页「重试连接」：同一候选原链路重放。
-  test('retryConnect replays the connect chain on the same candidate', () async {
-    final source = FakeSource();
-    final device = FakeCtDevice();
-    var attempts = 0;
-    final controller = makeController(
-      source,
-      connect: (_, __) async {
-        attempts++;
-        if (attempts == 1) throw Exception('gatt link gone');
-        return device;
-      },
-    );
-    addTearDown(controller.dispose);
-    addTearDown(source.close);
-    addTearDown(device.close);
+  test(
+    'retryConnect replays the connect chain on the same candidate',
+    () async {
+      final source = FakeSource();
+      final device = FakeCtDevice();
+      var attempts = 0;
+      final controller = makeController(
+        source,
+        connect: (_, __) async {
+          attempts++;
+          if (attempts == 1) throw Exception('gatt link gone');
+          return device;
+        },
+      );
+      addTearDown(controller.dispose);
+      addTearDown(source.close);
+      addTearDown(device.close);
 
-    await controller.runSelfCheck();
-    await until(() => source.startCount == 1, 'selfcheck did not start scan');
-    source.emit(sampleCandidate());
-    await until(
-      () => controller.phase == SessionPhase.resultsAvailable,
-      'candidate did not move phase',
-    );
+      await controller.runSelfCheck();
+      await until(() => source.startCount == 1, 'selfcheck did not start scan');
+      source.emit(sampleCandidate());
+      await until(
+        () => controller.phase == SessionPhase.resultsAvailable,
+        'candidate did not move phase',
+      );
 
-    await controller.selectCandidate(controller.candidates.first);
-    expect(controller.phase, SessionPhase.connectionError);
+      await controller.selectCandidate(controller.candidates.first);
+      expect(controller.phase, SessionPhase.connectionError);
 
-    await controller.retryConnect();
-    expect(attempts, 2);
-    expect(controller.phase, SessionPhase.choosingSections);
-    expect(controller.selectedCandidate, isNotNull);
-  });
+      await controller.retryConnect();
+      expect(attempts, 2);
+      expect(controller.phase, SessionPhase.choosingSections);
+      expect(controller.selectedCandidate, isNotNull);
+    },
+  );
 
   test(
     'blocked selfcheck stays in selfChecking without starting scan',
@@ -269,33 +274,35 @@ void main() {
   );
 
   group('M3b selfcheck hold / recheck (A1/A2/A3)', () {
-    test('countdown holds after pass; stay cancels; scan-now enters scanning',
-        () async {
-      final source = FakeSource();
-      final controller = ProvisioningController(
-        environmentProbe: readyProbe(),
-        discoverySource: source,
-        establishPairing: (_) async {},
-        connectChannel: (_, __) async => FakeCtDevice(),
-        selfCheckHold: const Duration(seconds: 1),
-      );
-      addTearDown(controller.dispose);
-      addTearDown(source.close);
+    test(
+      'countdown holds after pass; stay cancels; scan-now enters scanning',
+      () async {
+        final source = FakeSource();
+        final controller = ProvisioningController(
+          environmentProbe: readyProbe(),
+          discoverySource: source,
+          establishPairing: (_) async {},
+          connectChannel: (_, __) async => FakeCtDevice(),
+          selfCheckHold: const Duration(seconds: 1),
+        );
+        addTearDown(controller.dispose);
+        addTearDown(source.close);
 
-      await controller.runSelfCheck();
-      expect(controller.phase, SessionPhase.selfChecking);
-      expect(controller.selfCheckCountdown, 1);
+        await controller.runSelfCheck();
+        expect(controller.phase, SessionPhase.selfChecking);
+        expect(controller.selfCheckCountdown, 1);
 
-      controller.stayOnSelfCheck();
-      expect(controller.selfCheckCountdown, isNull);
-      expect(controller.selfCheckHeld, isTrue);
-      // 停留后倒计时不点火：真实时钟等过 1s 窗口仍留在自检。
-      await Future<void>.delayed(const Duration(milliseconds: 1300));
-      expect(controller.phase, SessionPhase.selfChecking);
+        controller.stayOnSelfCheck();
+        expect(controller.selfCheckCountdown, isNull);
+        expect(controller.selfCheckHeld, isTrue);
+        // 停留后倒计时不点火：真实时钟等过 1s 窗口仍留在自检。
+        await Future<void>.delayed(const Duration(milliseconds: 1300));
+        expect(controller.phase, SessionPhase.selfChecking);
 
-      controller.startScanNow();
-      expect(controller.phase, SessionPhase.scanning);
-    });
+        controller.startScanNow();
+        expect(controller.phase, SessionPhase.scanning);
+      },
+    );
 
     test('countdown expiry auto-enters scanning', () async {
       final source = FakeSource();
@@ -318,32 +325,34 @@ void main() {
       );
     });
 
-    test('walk reveals channels one-by-one, then arms the countdown (v6)',
-        () async {
-      final source = FakeSource();
-      final controller = ProvisioningController(
-        environmentProbe: readyProbe(),
-        discoverySource: source,
-        establishPairing: (_) async {},
-        connectChannel: (_, __) async => FakeCtDevice(),
-        selfCheckHold: const Duration(seconds: 5),
-      );
-      addTearDown(controller.dispose);
-      addTearDown(source.close);
+    test(
+      'walk reveals channels one-by-one, then arms the countdown (v6)',
+      () async {
+        final source = FakeSource();
+        final controller = ProvisioningController(
+          environmentProbe: readyProbe(),
+          discoverySource: source,
+          establishPairing: (_) async {},
+          connectChannel: (_, __) async => FakeCtDevice(),
+          selfCheckHold: const Duration(seconds: 5),
+        );
+        addTearDown(controller.dispose);
+        addTearDown(source.close);
 
-      final running = controller.runSelfCheck();
-      // The walk starts at row 0 the moment the report lands.
-      await until(
-        () => controller.selfCheckWalkIndex == 0,
-        'walk did not start at row 0',
-      );
-      // The countdown must wait until every channel has been revealed.
-      expect(controller.selfCheckCountdown, isNull);
-      await running;
-      expect(controller.selfCheckWalkIndex, -1);
-      expect(controller.selfCheckCountdown, 5);
-      controller.stayOnSelfCheck();
-    });
+        final running = controller.runSelfCheck();
+        // The walk starts at row 0 the moment the report lands.
+        await until(
+          () => controller.selfCheckWalkIndex == 0,
+          'walk did not start at row 0',
+        );
+        // The countdown must wait until every channel has been revealed.
+        expect(controller.selfCheckCountdown, isNull);
+        await running;
+        expect(controller.selfCheckWalkIndex, -1);
+        expect(controller.selfCheckCountdown, 5);
+        controller.stayOnSelfCheck();
+      },
+    );
 
     test('stay during the walk holds with all rows revealed (v6)', () async {
       final source = FakeSource();
@@ -400,114 +409,159 @@ void main() {
 
     // Round-3 A2: a completed check must stamp selfCheckAt and always clear
     // the in-flight flag — a stuck flag silences the re-check button forever.
-    test('every check stamps selfCheckAt and clears the in-flight flag',
-        () async {
-      final source = FakeSource();
-      final controller = makeController(source);
-      addTearDown(controller.dispose);
-      addTearDown(source.close);
+    test(
+      'every check stamps selfCheckAt and clears the in-flight flag',
+      () async {
+        final source = FakeSource();
+        final controller = makeController(source);
+        addTearDown(controller.dispose);
+        addTearDown(source.close);
 
-      await controller.runSelfCheck();
-      final first = controller.selfCheckAt;
-      expect(first, isNotNull);
-      expect(controller.selfChecking, isFalse);
+        await controller.runSelfCheck();
+        final first = controller.selfCheckAt;
+        expect(first, isNotNull);
+        expect(controller.selfChecking, isFalse);
 
-      // Re-check (mid-scan revisit): fresh stamp object, flag not left on.
-      await controller.runSelfCheck();
-      expect(identical(controller.selfCheckAt, first), isFalse);
-      expect(controller.selfChecking, isFalse);
-      expect(controller.phase, SessionPhase.scanning);
-    });
+        // Re-check (mid-scan revisit): fresh stamp object, flag not left on.
+        await controller.runSelfCheck();
+        expect(identical(controller.selfCheckAt, first), isFalse);
+        expect(controller.selfChecking, isFalse);
+        expect(controller.phase, SessionPhase.scanning);
+      },
+    );
 
-    test('blocked selfcheck can be re-run after the environment is fixed (A3)',
-        () async {
-      final source = FakeSource();
-      // 双通道都关：只关蓝牙时 Wi-Fi 网卡仍会放行（canProceed 单通道即可）。
-      var ready = false;
-      final probe = DesktopEnvironmentProbe(
-        probeBle: () async => CtEnvironmentReport(
-          readiness: ready ? CtBleReadiness.ready : CtBleReadiness.poweredOff,
-          detail: 'fake switchable',
-        ),
-        enumerateAdapters: () async => ready
-            ? '[{"Name":"Wi-Fi","Status":"Up","PhysicalMediaType":"Native 802.11"}]'
-            : null,
-      );
-      final controller = makeController(source, probe: probe);
-      addTearDown(controller.dispose);
-      addTearDown(source.close);
+    test(
+      'blocked selfcheck can be re-run after the environment is fixed (A3)',
+      () async {
+        final source = FakeSource();
+        // 双通道都关：只关蓝牙时 Wi-Fi 网卡仍会放行（canProceed 单通道即可）。
+        var ready = false;
+        final probe = DesktopEnvironmentProbe(
+          probeBle: () async => CtEnvironmentReport(
+            readiness: ready ? CtBleReadiness.ready : CtBleReadiness.poweredOff,
+            detail: 'fake switchable',
+          ),
+          enumerateAdapters: () async => ready
+              ? '[{"Name":"Wi-Fi","Status":"Up","PhysicalMediaType":"Native 802.11"}]'
+              : null,
+        );
+        final controller = makeController(source, probe: probe);
+        addTearDown(controller.dispose);
+        addTearDown(source.close);
 
-      await controller.runSelfCheck();
-      expect(controller.environmentReport!.canProceed, isFalse);
-      expect(controller.phase, SessionPhase.selfChecking);
-      expect(source.startCount, 0);
+        await controller.runSelfCheck();
+        expect(controller.environmentReport!.canProceed, isFalse);
+        expect(controller.phase, SessionPhase.selfChecking);
+        expect(source.startCount, 0);
 
-      // 修复环境后重新检测：同一次运行内即可放行（不再需要重启应用）。
-      ready = true;
-      await controller.runSelfCheck();
-      expect(controller.phase, SessionPhase.scanning);
-      await until(() => source.startCount == 1, 'recheck did not start scan');
-    });
+        // 修复环境后重新检测：同一次运行内即可放行（不再需要重启应用）。
+        ready = true;
+        await controller.runSelfCheck();
+        expect(controller.phase, SessionPhase.scanning);
+        await until(() => source.startCount == 1, 'recheck did not start scan');
+      },
+    );
   });
 
   group('M3 form / delivery / scan', () {
-    test('beginEditing prefills from config.get (masked secrets skipped)',
-        () async {
-      final source = FakeSource();
-      final device = FakeCtDevice();
-      final controller = await connectedToCaps(source, device);
+    test(
+      'beginEditing prefills from config.get (masked secrets skipped)',
+      () async {
+        final source = FakeSource();
+        final device = FakeCtDevice();
+        final controller = await connectedToCaps(source, device);
 
-      await controller.beginEditing({'wifi', 'mqtt'});
-      expect(controller.phase, SessionPhase.editingConfig);
-      expect(controller.editingSections, ['wifi', 'mqtt']);
-      await until(() => controller.prefillDone, 'prefill did not finish');
+        await controller.beginEditing({'wifi', 'mqtt'});
+        expect(controller.phase, SessionPhase.editingConfig);
+        expect(controller.editingSections, ['wifi', 'mqtt']);
+        await until(() => controller.prefillDone, 'prefill did not finish');
 
-      final wifi = controller.drafts['wifi'] as WifiSection;
-      expect(wifi.ssid, 'Office-2.4G'); // read-back applied
-      expect(wifi.password, isEmpty); // masked value never enters the draft
-      final mqtt = controller.drafts['mqtt'] as MqttSection;
-      expect(mqtt.enable, isTrue);
-      expect(mqtt.port, 8883);
-    });
+        final wifi = controller.drafts['wifi'] as WifiSection;
+        expect(wifi.ssid, 'Office-2.4G'); // read-back applied
+        expect(wifi.password, isEmpty); // masked value never enters the draft
+        final mqtt = controller.drafts['mqtt'] as MqttSection;
+        expect(mqtt.enable, isTrue);
+        expect(mqtt.port, 8883);
+      },
+    );
 
-    test('submit stores both sections then finish returns to scanning',
-        () async {
-      final source = FakeSource();
-      final device = FakeCtDevice();
-      final controller = await connectedToCaps(source, device);
+    test(
+      'openSection grows the round in capability order and keeps drafts',
+      () async {
+        final source = FakeSource();
+        final device = FakeCtDevice();
+        final controller = await connectedToCaps(source, device);
 
-      await controller.beginEditing({'wifi', 'mqtt'});
-      await until(() => controller.prefillDone, 'prefill did not finish');
-      controller.updateDraft(
-        const WifiSection(ssid: 'Office-2.4G', password: 'example-password'),
-      );
-      controller.updateDraft(
-        const MqttSection(enable: true, host: 'mqtt.example.com', port: 8883),
-      );
-      await controller.submit();
+        // First open starts the round with just that module.
+        await controller.openSection('cellular');
+        expect(controller.phase, SessionPhase.editingConfig);
+        expect(controller.editingSections, ['cellular']);
+        await until(() => controller.prefillDone, 'prefill did not finish');
 
-      expect(controller.phase, SessionPhase.completed);
-      expect(controller.deliveryResult!.stored, containsAll(['wifi', 'mqtt']));
-      expect(controller.deliveryResult!.apply, 'reconnect');
-      // v6: 成功下发即记回执（历史页数据源）。
-      expect(controller.sessionHistory, hasLength(1));
-      expect(controller.sessionHistory.single.deviceName, 'NE101-AABBCC');
-      expect(controller.sessionHistory.single.model, 'NE101');
-      expect(
-        controller.sessionHistory.single.sections,
-        containsAll(['wifi', 'mqtt']),
-      );
-      expect(controller.sessionHistory.single.appliedAt, isNotNull);
-      expect(device.lastConfigSet, {
-        'wifi': {'ssid': 'Office-2.4G', 'password': 'example-password'},
-        'mqtt': {'enable': true, 'host': 'mqtt.example.com', 'port': 8883},
-      });
+        // A second module joins the round in capability order (wifi first).
+        await controller.openSection('wifi');
+        expect(controller.editingSections, ['wifi', 'cellular']);
+        // Later-opened module prefills from the cached config.get snapshot —
+        // no second request for the same read-back.
+        final wifi = controller.drafts['wifi'] as WifiSection;
+        expect(wifi.ssid, 'Office-2.4G');
 
-      await controller.finishSession();
-      expect(controller.phase, SessionPhase.scanning);
-      expect(controller.drafts, isEmpty); // editing state cleared
-      expect(controller.pageForPhase, 'scan');
-    });
+        // Reopening an open module is a pure view switch: no reorder, and the
+        // edited draft is untouched.
+        controller.updateDraft(const CellularSection(apn: 'cmnet'));
+        await controller.openSection('cellular');
+        expect(controller.editingSections, ['wifi', 'cellular']);
+        expect((controller.drafts['cellular'] as CellularSection).apn, 'cmnet');
+
+        // Unknown names are no-ops.
+        await controller.openSection('nope');
+        expect(controller.editingSections, ['wifi', 'cellular']);
+      },
+    );
+
+    test(
+      'submit stores both sections then finish returns to scanning',
+      () async {
+        final source = FakeSource();
+        final device = FakeCtDevice();
+        final controller = await connectedToCaps(source, device);
+
+        await controller.beginEditing({'wifi', 'mqtt'});
+        await until(() => controller.prefillDone, 'prefill did not finish');
+        controller.updateDraft(
+          const WifiSection(ssid: 'Office-2.4G', password: 'example-password'),
+        );
+        controller.updateDraft(
+          const MqttSection(enable: true, host: 'mqtt.example.com', port: 8883),
+        );
+        await controller.submit();
+
+        expect(controller.phase, SessionPhase.completed);
+        expect(
+          controller.deliveryResult!.stored,
+          containsAll(['wifi', 'mqtt']),
+        );
+        expect(controller.deliveryResult!.apply, 'reconnect');
+        // v6: 成功下发即记回执（历史页数据源）。
+        expect(controller.sessionHistory, hasLength(1));
+        expect(controller.sessionHistory.single.deviceName, 'NE101-AABBCC');
+        expect(controller.sessionHistory.single.model, 'NE101');
+        expect(
+          controller.sessionHistory.single.sections,
+          containsAll(['wifi', 'mqtt']),
+        );
+        expect(controller.sessionHistory.single.appliedAt, isNotNull);
+        expect(device.lastConfigSet, {
+          'wifi': {'ssid': 'Office-2.4G', 'password': 'example-password'},
+          'mqtt': {'enable': true, 'host': 'mqtt.example.com', 'port': 8883},
+        });
+
+        await controller.finishSession();
+        expect(controller.phase, SessionPhase.scanning);
+        expect(controller.drafts, isEmpty); // editing state cleared
+        expect(controller.pageForPhase, 'scan');
+      },
+    );
 
     test('client validation blocks submit with per-field problems', () async {
       final source = FakeSource();
@@ -516,9 +570,7 @@ void main() {
 
       await controller.beginEditing({'wifi'});
       await until(() => controller.prefillDone, 'prefill did not finish');
-      controller.updateDraft(
-        const WifiSection(ssid: 'Net', password: 'short'),
-      );
+      controller.updateDraft(const WifiSection(ssid: 'Net', password: 'short'));
       await controller.submit();
 
       // Stays on the form with the field marked; nothing reached the device.
@@ -572,61 +624,65 @@ void main() {
       expect(device.lastConfigSet, isNull);
     });
 
-    test('device rejection keeps drafts; editAgain returns to the form',
-        () async {
-      final source = FakeSource();
-      final device = FakeCtDevice(rejectConfigSet: 'FIELD_NOT_SUPPORTED');
-      final controller = await connectedToCaps(source, device);
+    test(
+      'device rejection keeps drafts; editAgain returns to the form',
+      () async {
+        final source = FakeSource();
+        final device = FakeCtDevice(rejectConfigSet: 'FIELD_NOT_SUPPORTED');
+        final controller = await connectedToCaps(source, device);
 
-      await controller.beginEditing({'wifi'});
-      await until(() => controller.prefillDone, 'prefill did not finish');
-      controller.updateDraft(
-        const WifiSection(ssid: 'Office-2.4G', password: 'example-password'),
-      );
-      await controller.submit();
+        await controller.beginEditing({'wifi'});
+        await until(() => controller.prefillDone, 'prefill did not finish');
+        controller.updateDraft(
+          const WifiSection(ssid: 'Office-2.4G', password: 'example-password'),
+        );
+        await controller.submit();
 
-      expect(controller.phase, SessionPhase.operationError);
-      // Problems are delivered through an async stream: wait for the event.
-      await until(
-        () => controller.lastProblem?.reason == 'field_not_supported',
-        'rejection problem not delivered',
-      );
-      expect(controller.lastProblem!.message, contains('FIELD_NOT_SUPPORTED'));
+        expect(controller.phase, SessionPhase.operationError);
+        // Problems are delivered through an async stream: wait for the event.
+        await until(
+          () => controller.lastProblem?.reason == 'field_not_supported',
+          'rejection problem not delivered',
+        );
+        expect(
+          controller.lastProblem!.message,
+          contains('FIELD_NOT_SUPPORTED'),
+        );
 
-      controller.editAgain();
-      expect(controller.phase, SessionPhase.editingConfig);
-      final wifi = controller.drafts['wifi'] as WifiSection;
-      expect(wifi.ssid, 'Office-2.4G'); // entries preserved
-      expect(wifi.password, 'example-password');
-    });
+        controller.editAgain();
+        expect(controller.phase, SessionPhase.editingConfig);
+        final wifi = controller.drafts['wifi'] as WifiSection;
+        expect(wifi.ssid, 'Office-2.4G'); // entries preserved
+        expect(wifi.password, 'example-password');
+      },
+    );
 
-    test('network scan pages via cursor; picking fills the ssid draft',
-        () async {
-      final source = FakeSource();
-      final device = FakeCtDevice();
-      final controller = await connectedToCaps(source, device);
+    test(
+      'network scan pages via cursor; picking fills the ssid draft',
+      () async {
+        final source = FakeSource();
+        final device = FakeCtDevice();
+        final controller = await connectedToCaps(source, device);
 
-      await controller.beginEditing({'wifi'});
-      await until(() => controller.prefillDone, 'prefill did not finish');
+        await controller.beginEditing({'wifi'});
+        await until(() => controller.prefillDone, 'prefill did not finish');
 
-      await controller.scanNetworks('wifi');
-      expect(
-        controller.scanItems.map((network) => network.networkId).toList(),
-        ['Office-2.4G', 'CT-HaLow'],
-      );
-      expect(controller.scanMore, isTrue);
+        await controller.scanNetworks('wifi');
+        expect(
+          controller.scanItems.map((network) => network.networkId).toList(),
+          ['Office-2.4G', 'CT-HaLow'],
+        );
+        expect(controller.scanMore, isTrue);
 
-      await controller.loadMoreNetworks();
-      expect(controller.scanItems.last.networkId, 'Neighbor-5G');
-      expect(controller.scanMore, isFalse);
-      expect(device.lastScanRequest, {
-        'section': 'wifi',
-        'cursor': 'page-2',
-      });
+        await controller.loadMoreNetworks();
+        expect(controller.scanItems.last.networkId, 'Neighbor-5G');
+        expect(controller.scanMore, isFalse);
+        expect(device.lastScanRequest, {'section': 'wifi', 'cursor': 'page-2'});
 
-      controller.pickNetwork(controller.scanItems.first);
-      expect((controller.drafts['wifi'] as WifiSection).ssid, 'Office-2.4G');
-    });
+        controller.pickNetwork(controller.scanItems.first);
+        expect((controller.drafts['wifi'] as WifiSection).ssid, 'Office-2.4G');
+      },
+    );
 
     test('unsupported config.get degrades to empty prefill', () async {
       final source = FakeSource();
@@ -690,7 +746,9 @@ void main() {
       await controller.beginEditing({'wifi'});
       await until(() => controller.prefillDone, 'prefill did not finish');
       // A hidden SSID is typed manually through the same field.
-      controller.updateDraft(const WifiSection(ssid: 'Cafe-Guest', password: ''));
+      controller.updateDraft(
+        const WifiSection(ssid: 'Cafe-Guest', password: ''),
+      );
       await controller.submit();
 
       expect(controller.phase, SessionPhase.completed);
@@ -698,57 +756,62 @@ void main() {
       expect(device.lastConfigSet!['wifi'], {'ssid': 'Cafe-Guest'});
     });
 
-    test('§13.3 CAT1: manual apn/pin/auth submit; malformed pin blocked',
-        () async {
-      final source = FakeSource();
-      final device = FakeCtDevice(); // ne101 cellular: apn/username/password/pin/auth
-      final controller = await connectedToCaps(source, device);
+    test(
+      '§13.3 CAT1: manual apn/pin/auth submit; malformed pin blocked',
+      () async {
+        final source = FakeSource();
+        final device =
+            FakeCtDevice(); // ne101 cellular: apn/username/password/pin/auth
+        final controller = await connectedToCaps(source, device);
 
-      await controller.beginEditing({'cellular'});
-      await until(() => controller.prefillDone, 'prefill did not finish');
-      controller.updateDraft(
-        const CellularSection(apn: 'cmiot.iot', pin: '12', auth: 'pap'),
-      );
-      await controller.submit();
-      expect(controller.phase, SessionPhase.editingConfig);
-      expect(
-        controller.sectionProblems['cellular'],
-        contains(
-          predicate<FieldProblem>(
-            (problem) =>
-                problem.field == 'pin' &&
-                problem.code == FieldProblemCode.invalidFormat,
+        await controller.beginEditing({'cellular'});
+        await until(() => controller.prefillDone, 'prefill did not finish');
+        controller.updateDraft(
+          const CellularSection(apn: 'cmiot.iot', pin: '12', auth: 'pap'),
+        );
+        await controller.submit();
+        expect(controller.phase, SessionPhase.editingConfig);
+        expect(
+          controller.sectionProblems['cellular'],
+          contains(
+            predicate<FieldProblem>(
+              (problem) =>
+                  problem.field == 'pin' &&
+                  problem.code == FieldProblemCode.invalidFormat,
+            ),
           ),
-        ),
-      );
-      expect(device.lastConfigSet, isNull);
+        );
+        expect(device.lastConfigSet, isNull);
 
-      controller.updateDraft(
-        const CellularSection(apn: 'cmiot.iot', pin: '1234', auth: 'pap'),
-      );
-      await controller.submit();
-      expect(controller.phase, SessionPhase.completed);
-      expect(device.lastConfigSet!['cellular'], {
-        'apn': 'cmiot.iot',
-        'pin': '1234',
-        'auth': 'pap',
-      });
-    });
+        controller.updateDraft(
+          const CellularSection(apn: 'cmiot.iot', pin: '1234', auth: 'pap'),
+        );
+        await controller.submit();
+        expect(controller.phase, SessionPhase.completed);
+        expect(device.lastConfigSet!['cellular'], {
+          'apn': 'cmiot.iot',
+          'pin': '1234',
+          'auth': 'pap',
+        });
+      },
+    );
 
-    test('§13.3 CAT1: preconfigured SIM (fields=[]) submits an empty section',
-        () async {
-      final source = FakeSource();
-      final device = FakeCtDevice(capsShape: 'halow');
-      final controller = await connectedToCaps(source, device);
+    test(
+      '§13.3 CAT1: preconfigured SIM (fields=[]) submits an empty section',
+      () async {
+        final source = FakeSource();
+        final device = FakeCtDevice(capsShape: 'halow');
+        final controller = await connectedToCaps(source, device);
 
-      await controller.beginEditing({'cellular'});
-      await until(() => controller.prefillDone, 'prefill did not finish');
-      await controller.submit();
+        await controller.beginEditing({'cellular'});
+        await until(() => controller.prefillDone, 'prefill did not finish');
+        await controller.submit();
 
-      expect(controller.phase, SessionPhase.completed);
-      // {} confirms "use SIM defaults" without any field on the wire.
-      expect(device.lastConfigSet!['cellular'], isEmpty);
-    });
+        expect(controller.phase, SessionPhase.completed);
+        // {} confirms "use SIM defaults" without any field on the wire.
+        expect(device.lastConfigSet!['cellular'], isEmpty);
+      },
+    );
 
     test('§13.3 HaLow: scan pick fills ssid and country', () async {
       final source = FakeSource();
@@ -792,14 +855,16 @@ void main() {
       expect(device.lastConfigSet!.keys, ['mqtt']);
     });
 
-    test('§13.4 undeclared service section is excluded from the round',
-        () async {
-      final source = FakeSource();
-      final device = FakeCtDevice(); // ne101 declares no webhook section
-      final controller = await connectedToCaps(source, device);
+    test(
+      '§13.4 undeclared service section is excluded from the round',
+      () async {
+        final source = FakeSource();
+        final device = FakeCtDevice(); // ne101 declares no webhook section
+        final controller = await connectedToCaps(source, device);
 
-      await controller.beginEditing({'wifi', 'webhook'});
-      expect(controller.editingSections, ['wifi']);
-    });
+        await controller.beginEditing({'wifi', 'webhook'});
+        expect(controller.editingSections, ['wifi']);
+      },
+    );
   });
 }

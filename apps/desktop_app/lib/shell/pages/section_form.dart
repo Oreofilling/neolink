@@ -68,7 +68,7 @@ class SectionFormCard extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                section.name,
+                l.sectionLabel(section.name),
                 style: const TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w700,
@@ -172,12 +172,11 @@ class SectionFormCard extends StatelessWidget {
           fieldValue(section, field) as String?,
         );
       case 'qos':
-        return _dropdown<int>(
-          context,
-          field,
-          const [0, 1, 2],
-          fieldValue(section, field) as int?,
-        );
+        return _dropdown<int>(context, field, const [
+          0,
+          1,
+          2,
+        ], fieldValue(section, field) as int?);
       case 'type':
         final options = [
           for (final mode in CommunicationMode.values)
@@ -213,9 +212,8 @@ class SectionFormCard extends StatelessWidget {
         fontSize: 13,
         fontFamily: mono ? 'JetBrains Mono' : null,
       ),
-      decoration: _inputDecoration(context).copyWith(
-        hintText: numeric ? '1883' : null,
-      ),
+      decoration: _inputDecoration(context)
+          .copyWith(hintText: numeric ? '1883' : null),
       onChanged: (value) => onFieldChanged(field, value),
     );
   }

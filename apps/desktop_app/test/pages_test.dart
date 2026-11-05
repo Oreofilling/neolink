@@ -42,16 +42,22 @@ Future<void> settle(WidgetTester tester, [int frames = 12]) async {
 
 /// 泵根组件：跟随系统语言默认为中文（testWidgets 默认 en-US，E5 后语言
 /// 由平台列表解析），设置存储禁用避免写真实 APPDATA。
-Future<void> pumpApp(WidgetTester tester, ProvisioningController controller,
-    {SettingsStore? settings}) async {
+Future<void> pumpApp(
+  WidgetTester tester,
+  ProvisioningController controller, {
+  SettingsStore? settings,
+}) async {
   tester.platformDispatcher.localesTestValue = const [Locale('zh')];
   await tester.pumpWidget(
-    NeoLinkApp(controller: controller, settings: settings ?? SettingsStore.none()),
+    NeoLinkApp(
+      controller: controller,
+      settings: settings ?? SettingsStore.none(),
+    ),
   );
 }
 
 void main() {
-  testWidgets('全链路：自检过 → 候选行 → 连接 → 能力页勾选', (tester) async {
+  testWidgets('全链路：自检过 → 候选行 → 连接 → 模块列表进入配置', (tester) async {
     final source = FakeSource();
     final device = FakeCtDevice();
     final controller = wiredController(source, device);
@@ -81,12 +87,13 @@ void main() {
     expect(find.text('从未配置'), findsOneWidget); // 右栏当前网络
     expect(find.text('已连接'), findsOneWidget); // 上下文条徽章
 
-    // 勾选 wifi 节（节顺序与能力响应一致）。
-    final boxes = find.byType(Checkbox);
-    expect(boxes, findsNWidgets(3));
-    await tester.tap(boxes.first);
-    await tester.pump();
-    expect(tester.widget<Checkbox>(boxes.first).value, isTrue);
+    // v7：模块列表即入口，点 Wi-Fi 行直接进入该模块表单。
+    await tester.tap(find.text('Wi-Fi 联网'));
+    await settle(tester);
+    expect(controller.phase, SessionPhase.editingConfig);
+    expect(controller.editingSections, ['wifi']);
+    expect(find.text('返回模块选择'), findsOneWidget); // 模块页返回链接
+    expect(find.text('未填'), findsNothing); // 模块页没有列表行徽章
   });
 
   testWidgets('忙候选显示忙徽章且不可选择', (tester) async {
@@ -211,7 +218,9 @@ void main() {
     controller.dispose();
   });
 
-  testWidgets('M3 PoE: ethernet readonly row carries the PoE badge', (tester) async {
+  testWidgets('M3 PoE: ethernet readonly row carries the PoE badge', (
+    tester,
+  ) async {
     final source = FakeSource();
     final device = FakeCtDevice(capsShape: 'ne301', power: const ['poe']);
     final controller = wiredController(source, device);
@@ -231,8 +240,149 @@ void main() {
     expect(find.text('PoE 供电'), findsOneWidget);
   });
 
-  testWidgets('M3 full flow: pick sections -> prefilled form -> deliver -> result -> back to scan',
-      (tester) async {
+  testWidgets(
+    'M3 full flow: pick sections -> prefilled form -> deliver -> result -> back to scan',
+    (tester) async {
+      final source = FakeSource();
+      final device = FakeCtDevice();
+      final controller = wiredController(source, device);
+      addTearDown(source.close);
+      addTearDown(device.close);
+      addTearDown(controller.dispose);
+
+      await pumpApp(tester, controller);
+      await settle(tester);
+      source.emit(sampleCandidate());
+      await settle(tester);
+      await tester.tap(find.text('连接'));
+      await settle(tester);
+      expect(controller.phase, SessionPhase.choosingSections);
+
+      // v7: open the wifi module directly from the list.
+      await tester.tap(find.text('Wi-Fi 联网'));
+      await settle(tester);
+      expect(controller.phase, SessionPhase.editingConfig);
+
+      // config.get prefill: ssid filled, masked password left empty (an open
+      // network is legal).
+      expect((controller.drafts['wifi'] as WifiSection).ssid, 'Office-2.4G');
+
+      // Type a password, submit.
+      await tester.enterText(find.byType(TextField).at(1), 'example-password');
+      await tester.pump();
+      await tester.ensureVisible(find.text('下发配置'));
+      await tester.pump();
+      await tester.tap(find.text('下发配置'));
+      await settle(tester);
+
+      // Result page: stored list + apply hint + finish back to scan loop.
+      expect(controller.phase, SessionPhase.completed);
+      expect(find.text('已保存 1 项配置'), findsOneWidget);
+      expect(find.text('Wi-Fi 联网'), findsOneWidget);
+      expect(find.text('配置将在网络重连后生效'), findsOneWidget);
+
+      await tester.tap(find.text('完成并返回扫描'));
+      await settle(tester);
+      expect(controller.phase, SessionPhase.scanning);
+      // Pump past the scan window to converge back to empty (also guarantees
+      // no pending timers at teardown).
+      await tester.pump(const Duration(seconds: 21));
+      expect(controller.phase, SessionPhase.scanEmpty);
+    },
+  );
+
+  testWidgets(
+    'v7 round: back keeps drafts, second module joins in capability order',
+    (tester) async {
+      final source = FakeSource();
+      final device = FakeCtDevice();
+      final controller = wiredController(source, device);
+      addTearDown(source.close);
+      addTearDown(device.close);
+      addTearDown(controller.dispose);
+
+      await pumpApp(tester, controller);
+      await settle(tester);
+      source.emit(sampleCandidate());
+      await settle(tester);
+      await tester.tap(find.text('连接'));
+      await settle(tester);
+      expect(controller.phase, SessionPhase.choosingSections);
+
+      // Open wifi, type a password — the entry must survive every move.
+      await tester.tap(find.text('Wi-Fi 联网'));
+      await settle(tester);
+      expect(controller.phase, SessionPhase.editingConfig);
+      await tester.enterText(find.byType(TextField).at(1), 'keep-me');
+
+      // Back to the module list: wifi row shows progress, others stay empty.
+      await tester.tap(find.text('返回模块选择'));
+      await settle(tester);
+      // Prefilled ssid + typed password both count as content.
+      expect(find.text('已填 2 项'), findsOneWidget);
+      expect(find.text('未填'), findsNWidgets(2)); // cellular + mqtt
+      // The side rail answers "what ships": one module opened so far.
+      expect(find.text('1 项待下发'), findsOneWidget);
+
+      // Open cellular: the round grows in capability order (wifi first).
+      await tester.tap(find.text('蜂窝网络 4G'));
+      await settle(tester);
+      expect(controller.editingSections, ['wifi', 'cellular']);
+      expect((controller.drafts['wifi'] as WifiSection).password, 'keep-me');
+      expect(find.text('返回模块选择'), findsOneWidget);
+      expect(find.text('2 项待下发'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'M3 rejection: banner shows the code, back-to-edit keeps values',
+    (tester) async {
+      final source = FakeSource();
+      final device = FakeCtDevice(rejectConfigSet: 'FIELD_NOT_SUPPORTED');
+      final controller = wiredController(source, device);
+      addTearDown(source.close);
+      addTearDown(device.close);
+      addTearDown(controller.dispose);
+
+      await pumpApp(tester, controller);
+      await settle(tester);
+      source.emit(sampleCandidate());
+      await settle(tester);
+      await tester.tap(find.text('连接'));
+      await settle(tester);
+
+      // v7: open the wifi module directly from the list.
+      await tester.tap(find.text('Wi-Fi 联网'));
+      await settle(tester);
+
+      await tester.enterText(find.byType(TextField).at(1), 'example-password');
+      await tester.pump();
+      await tester.ensureVisible(find.text('下发配置'));
+      await tester.pump();
+      await tester.tap(find.text('下发配置'));
+      await settle(tester);
+
+      expect(controller.phase, SessionPhase.operationError);
+      expect(find.text('下发被拒，已保留所填内容'), findsOneWidget);
+      expect(find.textContaining('FIELD_NOT_SUPPORTED'), findsOneWidget);
+
+      // The earlier ensureVisible(下发配置) scroll leaves the banner above the
+      // fold — scroll back to it before tapping.
+      await tester.ensureVisible(find.text('返回编辑'));
+      await tester.pump();
+      await tester.tap(find.text('返回编辑'));
+      await settle(tester);
+      expect(controller.phase, SessionPhase.editingConfig);
+      // Entries preserved: prefilled ssid + typed password still in the draft.
+      final wifi = controller.drafts['wifi'] as WifiSection;
+      expect(wifi.ssid, 'Office-2.4G');
+      expect(wifi.password, 'example-password');
+    },
+  );
+
+  testWidgets('M3 network scan: list pick fills ssid, cursor loads page 2', (
+    tester,
+  ) async {
     final source = FakeSource();
     final device = FakeCtDevice();
     final controller = wiredController(source, device);
@@ -246,112 +396,9 @@ void main() {
     await settle(tester);
     await tester.tap(find.text('连接'));
     await settle(tester);
-    expect(controller.phase, SessionPhase.choosingSections);
 
-    // Check wifi, enter the form.
-    await tester.tap(find.byType(Checkbox).first);
-    await tester.pump();
-    await tester.ensureVisible(find.text('开始配置'));
-    await tester.pump();
-    await tester.tap(find.text('开始配置'));
-    await settle(tester);
-    expect(controller.phase, SessionPhase.editingConfig);
-
-    // config.get prefill: ssid filled, masked password left empty (an open
-    // network is legal).
-    expect((controller.drafts['wifi'] as WifiSection).ssid, 'Office-2.4G');
-
-    // Type a password, submit.
-    await tester.enterText(find.byType(TextField).at(1), 'example-password');
-    await tester.pump();
-    await tester.ensureVisible(find.text('下发配置'));
-    await tester.pump();
-    await tester.tap(find.text('下发配置'));
-    await settle(tester);
-
-    // Result page: stored list + apply hint + finish back to scan loop.
-    expect(controller.phase, SessionPhase.completed);
-    expect(find.text('已保存 1 项配置'), findsOneWidget);
-    expect(find.text('Wi-Fi 联网'), findsOneWidget);
-    expect(find.text('配置将在网络重连后生效'), findsOneWidget);
-
-    await tester.tap(find.text('完成并返回扫描'));
-    await settle(tester);
-    expect(controller.phase, SessionPhase.scanning);
-    // Pump past the scan window to converge back to empty (also guarantees
-    // no pending timers at teardown).
-    await tester.pump(const Duration(seconds: 21));
-    expect(controller.phase, SessionPhase.scanEmpty);
-  });
-
-  testWidgets('M3 rejection: banner shows the code, back-to-edit keeps values',
-      (tester) async {
-    final source = FakeSource();
-    final device = FakeCtDevice(rejectConfigSet: 'FIELD_NOT_SUPPORTED');
-    final controller = wiredController(source, device);
-    addTearDown(source.close);
-    addTearDown(device.close);
-    addTearDown(controller.dispose);
-
-    await pumpApp(tester, controller);
-    await settle(tester);
-    source.emit(sampleCandidate());
-    await settle(tester);
-    await tester.tap(find.text('连接'));
-    await settle(tester);
-
-    await tester.tap(find.byType(Checkbox).first);
-    await tester.pump();
-    await tester.ensureVisible(find.text('开始配置'));
-    await tester.pump();
-    await tester.tap(find.text('开始配置'));
-    await settle(tester);
-
-    await tester.enterText(find.byType(TextField).at(1), 'example-password');
-    await tester.pump();
-    await tester.ensureVisible(find.text('下发配置'));
-    await tester.pump();
-    await tester.tap(find.text('下发配置'));
-    await settle(tester);
-
-    expect(controller.phase, SessionPhase.operationError);
-    expect(find.text('下发被拒，已保留所填内容'), findsOneWidget);
-    expect(find.textContaining('FIELD_NOT_SUPPORTED'), findsOneWidget);
-
-    // The earlier ensureVisible(下发配置) scroll leaves the banner above the
-    // fold — scroll back to it before tapping.
-    await tester.ensureVisible(find.text('返回编辑'));
-    await tester.pump();
-    await tester.tap(find.text('返回编辑'));
-    await settle(tester);
-    expect(controller.phase, SessionPhase.editingConfig);
-    // Entries preserved: prefilled ssid + typed password still in the draft.
-    final wifi = controller.drafts['wifi'] as WifiSection;
-    expect(wifi.ssid, 'Office-2.4G');
-    expect(wifi.password, 'example-password');
-  });
-
-  testWidgets('M3 network scan: list pick fills ssid, cursor loads page 2',
-      (tester) async {
-    final source = FakeSource();
-    final device = FakeCtDevice();
-    final controller = wiredController(source, device);
-    addTearDown(source.close);
-    addTearDown(device.close);
-    addTearDown(controller.dispose);
-
-    await pumpApp(tester, controller);
-    await settle(tester);
-    source.emit(sampleCandidate());
-    await settle(tester);
-    await tester.tap(find.text('连接'));
-    await settle(tester);
-
-    await tester.tap(find.byType(Checkbox).first);
-    await tester.pump();
-    await tester.ensureVisible(find.text('开始配置'));
-    await tester.pump();
-    await tester.tap(find.text('开始配置'));
+    // v7: open the wifi module directly from the list.
+    await tester.tap(find.text('Wi-Fi 联网'));
     await settle(tester);
 
     await tester.ensureVisible(find.text('扫描网络'));
@@ -375,11 +422,16 @@ void main() {
     expect((controller.drafts['wifi'] as WifiSection).ssid, 'CT-HaLow');
   });
 
-  testWidgets('M3b countdown: prominent digits, stay, then scan now', (tester) async {
+  testWidgets('M3b countdown: prominent digits, stay, then scan now', (
+    tester,
+  ) async {
     final source = FakeSource();
     final device = FakeCtDevice();
-    final controller = wiredController(source, device,
-        selfCheckHold: const Duration(seconds: 5));
+    final controller = wiredController(
+      source,
+      device,
+      selfCheckHold: const Duration(seconds: 5),
+    );
     addTearDown(source.close);
     addTearDown(device.close);
     addTearDown(controller.dispose);
@@ -417,7 +469,9 @@ void main() {
     expect(controller.phase, SessionPhase.scanEmpty);
   });
 
-  testWidgets('v6 icon pass: topbar toggles and page decorations carry icons', (tester) async {
+  testWidgets('v6 icon pass: topbar toggles and page decorations carry icons', (
+    tester,
+  ) async {
     final source = FakeSource();
     final device = FakeCtDevice();
     final controller = wiredController(source, device);
@@ -441,7 +495,9 @@ void main() {
     expect(controller.phase, SessionPhase.scanEmpty);
   });
 
-  testWidgets('M3b A2: history page stays put mid-scan (refresh immunity)', (tester) async {
+  testWidgets('M3b A2: history page stays put mid-scan (refresh immunity)', (
+    tester,
+  ) async {
     final source = FakeSource();
     final device = FakeCtDevice();
     final controller = wiredController(source, device);
@@ -469,8 +525,9 @@ void main() {
     expect(find.text('未发现您的设备'), findsOneWidget);
   });
 
-  testWidgets('M3d recheck feedback: running label, then last-checked stamp',
-      (tester) async {
+  testWidgets('M3d recheck feedback: running label, then last-checked stamp', (
+    tester,
+  ) async {
     final source = FakeSource();
     final device = FakeCtDevice();
     // Gated probe: the BLE leg resolves only when the test completes it,
@@ -483,8 +540,7 @@ void main() {
     final controller = ProvisioningController(
       environmentProbe: DesktopEnvironmentProbe(
         probeBle: () => gate.future,
-        enumerateAdapters: () async =>
-            '[{"Name":"Wi-Fi","Status":"Up","PhysicalMediaType":"Native 802.11"}]',
+        enumerateAdapters: () async => '[{"Name":"Wi-Fi","Status":"Up","PhysicalMediaType":"Native 802.11"}]',
       ),
       discoverySource: source,
       establishPairing: (_) async {},
@@ -503,7 +559,9 @@ void main() {
     gate.complete(readyReport());
     await settle(tester); // report landed; v6 walk on the first row
     expect(find.text('等待检测'), findsNWidgets(2));
-    await tester.pump(const Duration(seconds: 2)); // walk plays out -> countdown
+    await tester.pump(
+      const Duration(seconds: 2),
+    ); // walk plays out -> countdown
     expect(find.text('5'), findsOneWidget);
     expect(find.textContaining('上次检测'), findsOneWidget); // stamp proves it ran
 
@@ -541,9 +599,11 @@ void main() {
     await pumpApp(tester, controller);
     await settle(tester);
     // lastSeen 回溯 30s（> ttl 12s）：进结果页即为过期条目。
-    source.emit(sampleCandidate(
-      seen: DateTime.now().subtract(const Duration(seconds: 30)),
-    ));
+    source.emit(
+      sampleCandidate(
+        seen: DateTime.now().subtract(const Duration(seconds: 30)),
+      ),
+    );
     await settle(tester);
     expect(controller.phase, SessionPhase.resultsAvailable);
 
@@ -576,7 +636,10 @@ void main() {
     );
     await settle(tester);
     expect(find.text('Scan devices'), findsWidgets);
-    expect(find.text('EN'), findsOneWidget); // v6: toggle states the CURRENT language
+    expect(
+      find.text('EN'),
+      findsOneWidget,
+    ); // v6: toggle states the CURRENT language
 
     // 顶栏切换 → 界面立即中文（写盘为 fire-and-forget，UI 断言不依赖文件）。
     await tester.tap(find.text('EN'));
@@ -592,7 +655,10 @@ void main() {
     // 起始语言应为存储的中文（E5 的回归点）。
     File('${dir.path}\\settings.json').writeAsStringSync('{"locale":"zh"}\n');
     await tester.pumpWidget(
-      NeoLinkApp(controller: controller, settings: SettingsStore(directory: dir.path)),
+      NeoLinkApp(
+        controller: controller,
+        settings: SettingsStore(directory: dir.path),
+      ),
     );
     await settle(tester);
     expect(find.text('扫描设备'), findsWidgets);
