@@ -1,8 +1,19 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:ble_universal/ble_universal.dart';
+import 'package:ct_disc_adapter/ct_disc_adapter.dart';
 import 'package:desktop_app/services/environment_probe.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+// 一块物理网卡的可枚举替身（CT-Disc 腿确定性可用）。
+Future<List<NicEndpoint>> nicList({bool includeVirtual = false}) async => [
+      NicEndpoint(
+        interfaceName: 'Ethernet',
+        address: InternetAddress('192.168.93.20'),
+        nicClass: NicClass.physical,
+      ),
+    ];
 
 void main() {
   group('parseNetAdapters', () {
@@ -77,6 +88,7 @@ void main() {
           detail: 'radio on',
         ),
         enumerateAdapters: () async => '[{"Name":"Wi-Fi","Status":"Up","PhysicalMediaType":"Native 802.11"}]',
+        nicEnumerator: nicList,
       );
 
       final report = await probe.probe();
@@ -90,10 +102,10 @@ void main() {
         report.channel(DiscoveryChannel.accessPoint)?.capability,
         ChannelCapability.available,
       );
-      // CT-Disc 本版预留：受限标注。
+      // M5 起 CT-Disc 是真实网卡枚举腿：物理网卡在场即可用。
       expect(
         report.channel(DiscoveryChannel.ctDisc)?.capability,
-        ChannelCapability.limited,
+        ChannelCapability.available,
       );
     });
 
@@ -104,6 +116,7 @@ void main() {
           detail: 'radio on',
         ),
         enumerateAdapters: () async => null,
+        nicEnumerator: nicList,
       );
 
       final report = await probe.probe();
@@ -118,6 +131,7 @@ void main() {
       final probe = DesktopEnvironmentProbe(
         probeBle: () async => throw Exception('radio gone'),
         enumerateAdapters: () async => '[{"Name":"Wi-Fi","Status":"Up","PhysicalMediaType":"Native 802.11"}]',
+        nicEnumerator: nicList,
       );
 
       final report = await probe.probe();
@@ -139,6 +153,7 @@ void main() {
           detail: 'radio off',
         ),
         enumerateAdapters: () async => null,
+        nicEnumerator: ({bool includeVirtual = false}) async => [],
       );
 
       final report = await probe.probe();
@@ -153,6 +168,8 @@ void main() {
       final probe = DesktopEnvironmentProbe(
         probeBle: () => Completer<CtEnvironmentReport>().future,
         enumerateAdapters: () => Completer<String?>().future,
+        nicEnumerator: ({bool includeVirtual = false}) =>
+            Completer<List<NicEndpoint>>().future,
         legTimeout: const Duration(milliseconds: 50),
       );
 

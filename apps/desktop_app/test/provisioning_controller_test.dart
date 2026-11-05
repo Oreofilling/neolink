@@ -4,8 +4,10 @@
 library;
 
 import 'dart:async';
+import 'dart:io';
 
 import 'package:ble_universal/ble_universal.dart';
+import 'package:ct_disc_adapter/ct_disc_adapter.dart';
 import 'package:communication_domain/communication_domain.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provisioning_session/provisioning_session.dart';
@@ -505,6 +507,16 @@ void main() {
           enumerateAdapters: () async => ready
               ? '[{"Name":"Wi-Fi","Status":"Up","PhysicalMediaType":"Native 802.11"}]'
               : null,
+          // M5 第三腿同样可切换：修复前无任何网卡端点（CT-Disc 不可用）。
+          nicEnumerator: ({bool includeVirtual = false}) async => ready
+              ? [
+                  NicEndpoint(
+                    interfaceName: 'Ethernet',
+                    address: InternetAddress('192.168.93.20'),
+                    nicClass: NicClass.physical,
+                  ),
+                ]
+              : [],
         );
         final controller = makeController(source, probe: probe);
         addTearDown(controller.dispose);
