@@ -20,7 +20,8 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
-import 'package:provisioning_session/provisioning_session.dart';
+import 'package:provisioning_session/provisioning_session.dart'
+    hide ConfigSection;
 
 import 'package:ble_universal/ble_universal.dart';
 import 'package:communication_domain/communication_domain.dart';

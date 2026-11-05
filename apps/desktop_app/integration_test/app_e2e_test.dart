@@ -21,8 +21,10 @@ import 'package:desktop_app/services/settings_store.dart';
 import '../test/provisioning_fakes.dart';
 
 void main() {
-  final binding = IntegrationTestWidgetsFlutterBinding.ensureInitialized();
-  binding.framePolicy = LiveFramePolicy.fullyLive;
+  // 3.47 integration_test follows AutomatedTestWidgetsFlutterBinding
+  // semantics (no framePolicy knob anymore): pump() drives fake time and
+  // fires timers virtually, so settle() counts mirror the widget suite.
+  IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
   /// 16ms frames, N of them — the app chain converges on microtasks, and
   /// dialog/route animations need 150ms (10+ frames) to finish.
@@ -39,7 +41,7 @@ void main() {
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
     return tester.pumpWidget(
-      NeoLinkApp(controller: controller, settings: SettingsStore.none),
+      NeoLinkApp(controller: controller, settings: SettingsStore.none()),
     );
   }
 
