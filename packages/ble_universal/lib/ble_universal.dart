@@ -16,6 +16,7 @@ export 'src/ble_discovery_source.dart';
 export 'src/ct_adv_source.dart';
 export 'src/environment_check.dart';
 export 'src/link_events.dart';
+export 'src/link_injector.dart';
 export 'src/system_pairing.dart';
 export 'src/universal_ct_channel.dart';
 export 'src/universal_ct_scanner.dart';
