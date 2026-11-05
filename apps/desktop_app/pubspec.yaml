@@ -21,6 +21,10 @@ dependencies:
   camera: ^0.11.0
   camera_windows: ^0.3.0+1
   flutter_zxing: ^1.8.2
+  # QR decode normalizes packed source formats (1-bit label scans) to an
+  # 8-bit RGB raster before the FFI call; already in the tree via
+  # flutter_zxing, so this adds no new native code.
+  image: ^4.1.0
   file_selector: ^1.0.3
   neolink_ui:
     path: ../../packages/neolink_ui

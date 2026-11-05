@@ -45,10 +45,16 @@ class QrGuidePage extends StatefulWidget {
 /// How step 2 obtains the QR image.
 enum _QrInputMode { camera, image }
 
+/// Why an uploaded image did not advance the walkthrough. `foreign` keeps
+/// the decoded text so the operator can see the code was read but is not a
+/// device code (a packaging label, a payment QR…) instead of guessing.
+enum _QrUploadIssue { none, noBarcode, foreign }
+
 class _QrGuidePageState extends State<QrGuidePage> {
   int _step = 0;
   _QrInputMode _mode = _QrInputMode.camera;
-  bool _uploadInvalid = false;
+  _QrUploadIssue _uploadIssue = _QrUploadIssue.none;
+  String _foreignText = '';
   String _entered = '';
 
   ProvisioningController get controller => widget.controller;
@@ -108,17 +114,25 @@ class _QrGuidePageState extends State<QrGuidePage> {
   }
 
   /// Upload mode: pick an image, run it through the same decoder + parser
-  /// as the camera loop. A cancelled dialog is not an error; an unreadable
-  /// or non-conforming image shows a quiet inline hint and stays on step.
+  /// as the camera loop. A cancelled dialog is not an error; a failure keeps
+  /// the walkthrough on the step with a hint that names which stage failed —
+  /// no barcode in the image, or a barcode that is not a device code.
   Future<void> _pickAndDecode() async {
-    setState(() => _uploadInvalid = false);
+    setState(() => _uploadIssue = _QrUploadIssue.none);
     final path = await (widget.qrImagePicker ?? fileQrImagePicker)();
     if (!mounted || path == null) return;
     final text = await (widget.qrDecoder ?? zxingQrDecoder)(path);
     if (!mounted) return;
-    final uri = text == null ? null : DeviceQrUri.tryParse(text);
+    if (text == null) {
+      setState(() => _uploadIssue = _QrUploadIssue.noBarcode);
+      return;
+    }
+    final uri = DeviceQrUri.tryParse(text);
     if (uri == null) {
-      setState(() => _uploadInvalid = true);
+      setState(() {
+        _uploadIssue = _QrUploadIssue.foreign;
+        _foreignText = text.length > 64 ? '${text.substring(0, 64)}…' : text;
+      });
       return;
     }
     _onQrDecoded(uri);
@@ -350,7 +364,7 @@ class _QrGuidePageState extends State<QrGuidePage> {
                 : NLButtonVariant.secondary,
             onPressed: () => setState(() {
               _mode = _QrInputMode.camera;
-              _uploadInvalid = false;
+              _uploadIssue = _QrUploadIssue.none;
             }),
           ),
         ),
@@ -364,7 +378,7 @@ class _QrGuidePageState extends State<QrGuidePage> {
                 : NLButtonVariant.secondary,
             onPressed: () => setState(() {
               _mode = _QrInputMode.image;
-              _uploadInvalid = false;
+              _uploadIssue = _QrUploadIssue.none;
             }),
           ),
         ),
@@ -395,7 +409,7 @@ class _QrGuidePageState extends State<QrGuidePage> {
               variant: NLButtonVariant.secondary,
               onPressed: _pickAndDecode,
             ),
-            if (_uploadInvalid)
+            if (_uploadIssue != _QrUploadIssue.none)
               Padding(
                 padding: const EdgeInsets.only(top: 8),
                 child: Row(
@@ -404,7 +418,9 @@ class _QrGuidePageState extends State<QrGuidePage> {
                     const SizedBox(width: 6),
                     Expanded(
                       child: Text(
-                        l.qrUploadInvalid,
+                        _uploadIssue == _QrUploadIssue.noBarcode
+                            ? l.qrUploadInvalid
+                            : l.qrUploadForeign(_foreignText),
                         style: TextStyle(fontSize: 11, color: c.destructive),
                       ),
                     ),

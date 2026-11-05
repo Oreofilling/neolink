@@ -101,14 +101,12 @@ Future<void> _pumpGuide(
   unawaited(controller.runSelfCheck());
 }
 
-/// Step 2's upload mode end-to-end: switch mode, pick, expect the suffix
-/// focused (or, with [invalid], the inline hint and no focus). The picker
-/// and decoder were already injected through [_pumpGuide].
+/// Step 2's upload mode interaction: switch mode, pick, settle. The hint
+/// assertions live with each test — the helper only drives the UI.
 Future<void> _uploadFlow(
   WidgetTester tester,
-  ProvisioningController controller, {
-  required bool invalid,
-}) async {
+  ProvisioningController controller,
+) async {
   final modeButton = find.text('上传图片');
   await tester.ensureVisible(modeButton);
   await _settle(tester, 2);
@@ -120,14 +118,6 @@ Future<void> _uploadFlow(
   await _settle(tester, 2);
   await tester.tap(choose);
   await _settle(tester);
-
-  if (invalid) {
-    expect(find.text('未识别到有效的设备二维码，请换一张图片'), findsOneWidget);
-    expect(controller.qrFocusSuffix, isNull);
-  } else {
-    expect(controller.qrFocusSuffix, 'A1B2C3');
-    expect(find.text('A1B2C3'), findsWidgets);
-  }
 }
 
 void main() {
@@ -190,7 +180,9 @@ void main() {
     expect(qrSource.captures, 0);
 
     // Act: upload mode, pick a photo — same parser, same auto-advance.
-    await _uploadFlow(tester, controller, invalid: false);
+    await _uploadFlow(tester, controller);
+    expect(controller.qrFocusSuffix, 'A1B2C3');
+    expect(find.text('A1B2C3'), findsWidgets);
 
     // Same timer discipline as above: dispose before the body returns.
     controller.dispose();
@@ -216,9 +208,44 @@ void main() {
     await _settle(tester);
 
     // Act: upload a photo that does not decode to a spec QR.
-    await _uploadFlow(tester, controller, invalid: true);
+    await _uploadFlow(tester, controller);
 
-    // Still on the input step — the mode toggle stays reachable.
+    // Assert: the no-barcode hint, no focus, still on the input step.
+    expect(find.text('未识别到二维码，请换一张更清晰的图片'), findsOneWidget);
+    expect(controller.qrFocusSuffix, isNull);
+    expect(find.text('拍照识别'), findsOneWidget);
+
+    controller.dispose();
+  });
+
+  testWidgets('a foreign QR decodes but shows its content, no advance', (
+    tester,
+  ) async {
+    // Arrange: the picked image carries a perfectly readable QR whose text
+    // is not a ctdev:// URI (a payment or packaging code, say).
+    final bleSource = FakeSource();
+    final controller = _wiredController(bleSource);
+    final qrSource = FakeQrSource(openError: QrNoCameraException());
+    Future<String?> decoder(String path) async => 'https://example.com/pay';
+    addTearDown(bleSource.close);
+
+    await _pumpGuide(tester, controller,
+        source: qrSource,
+        decoder: decoder,
+        picker: () async => 'foreign.png');
+    await _settle(tester);
+
+    await tester.tap(find.text('下一步'));
+    await _settle(tester);
+
+    // Act: pick the readable-but-foreign image.
+    await _uploadFlow(tester, controller);
+
+    // Assert: the foreign hint names the decoded text, and the walkthrough
+    // never focuses a device.
+    expect(find.textContaining('不是设备码'), findsOneWidget);
+    expect(find.textContaining('https://example.com/pay'), findsOneWidget);
+    expect(controller.qrFocusSuffix, isNull);
     expect(find.text('拍照识别'), findsOneWidget);
 
     controller.dispose();

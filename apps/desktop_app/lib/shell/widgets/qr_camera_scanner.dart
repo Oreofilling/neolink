@@ -14,11 +14,16 @@
 library;
 
 import 'dart:async';
+import 'dart:io';
+import 'dart:math';
 
-import 'package:camera/camera.dart';
+// ImageFormat also exists in package:camera (CameraImage formats); hidden
+// here so flutter_zxing's pixel-layout constants win the name.
+import 'package:camera/camera.dart' hide ImageFormat;
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_zxing/flutter_zxing.dart';
+import 'package:image/image.dart' as imglib;
 import 'package:neolink_ui/neolink_ui.dart';
 
 import '../../l10n/app_localizations.dart';
@@ -57,12 +62,38 @@ typedef QrImageDecoder = Future<String?> Function(String imagePath);
 /// cancels the dialog (cancel is not an error).
 typedef QrImagePicker = Future<String?> Function();
 
-/// Production decoder: zxing-cpp over the captured still, QR-only.
+/// Longest image side fed to the decoder; bigger photos are downscaled to
+/// keep the native call in the millisecond range.
+const int _kDecodeMaxSide = 1600;
+
+/// Production decoder: zxing-cpp over an image file, QR-only.
+///
+/// The image is decoded and normalized here rather than through the
+/// package's readBarcodeImagePathString: that path hands getBytes(rgb) to
+/// the native reader without checking the buffer length, and for packed
+/// source formats (1-bit QR label scans) the buffer is a fraction of
+/// width*height*3 — the native side then reads past the allocation (seen
+/// as a hung decode). Converting to 8-bit RGB first guarantees the buffer
+/// size the native side expects.
 Future<String?> zxingQrDecoder(String imagePath) async {
   try {
-    final result = await zx.readBarcodeImagePathString(
-      imagePath,
-      DecodeParams(format: Format.qrCode, tryHarder: true, maxSize: 1600),
+    final bytes = await File(imagePath).readAsBytes();
+    var image = imglib.decodeImage(bytes);
+    if (image == null) return null;
+    image = image.convert(format: imglib.Format.uint8, numChannels: 3);
+    if (image.width > _kDecodeMaxSide || image.height > _kDecodeMaxSide) {
+      final scale = _kDecodeMaxSide / max(image.width, image.height);
+      image = imglib.copyResize(image, width: (image.width * scale).round());
+    }
+    final result = zx.readBarcode(
+      image.getBytes(order: imglib.ChannelOrder.rgb),
+      DecodeParams(
+        imageFormat: ImageFormat.rgb,
+        format: Format.qrCode,
+        tryHarder: true,
+        width: image.width,
+        height: image.height,
+      ),
     );
     return result.isValid ? result.text : null;
   } catch (_) {
