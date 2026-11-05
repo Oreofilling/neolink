@@ -118,43 +118,44 @@ void main() {
     },
   );
 
-  test(
-    'v7d connectStepTimes: cleared and refilled on candidate reselect',
-    () async {
-      final source = FakeSource();
-      final device = FakeCtDevice();
-      final controller = makeController(
-        source,
-        connect: (_, __) async => device,
-      );
-      addTearDown(controller.dispose);
-      addTearDown(source.close);
-      addTearDown(device.close);
+  test('v7d connectStepTimes: cleared and refilled on connect retry', () async {
+    final source = FakeSource();
+    final controller = makeController(
+      source,
+      connect: (_, __) async => throw Exception('gatt link gone'),
+    );
+    addTearDown(controller.dispose);
+    addTearDown(source.close);
 
-      await controller.runSelfCheck();
-      await until(() => source.startCount == 1, 'selfcheck did not start scan');
-      source.emit(sampleCandidate(candidateId: 'dev-1', macSuffix: 'AAA111'));
-      source.emit(sampleCandidate(candidateId: 'dev-2', macSuffix: 'BBB222'));
-      await until(() => controller.candidates.length == 2, 'two candidates');
+    await controller.runSelfCheck();
+    // 相位事件异步投递：订阅挂上（源已启动）再喂候选，否则广播流丢弃。
+    await until(() => source.startCount == 1, 'selfcheck did not start scan');
+    source.emit(sampleCandidate());
+    await until(
+      () => controller.phase == SessionPhase.resultsAvailable,
+      'candidate did not move phase',
+    );
 
-      await controller.selectCandidate(controller.candidates.first);
-      expect(controller.phase, SessionPhase.choosingSections);
-      final firstRun = List<DateTime>.of(controller.connectStepTimes);
-      expect(firstRun, isNotEmpty);
+    await controller.selectCandidate(controller.candidates.first);
+    expect(controller.phase, SessionPhase.connectionError);
+    expect(controller.connectStepTimes, isNotEmpty);
+    final failedStampCount = controller.connectStepTimes.length;
 
-      await controller.selectCandidate(controller.candidates.last);
-      expect(controller.phase, SessionPhase.choosingSections);
-      // The second chain's stamps replace the first — series never mix.
-      expect(
-        controller.connectStepTimes.length,
-        controller.connectSteps.length,
-      );
-      expect(
-        controller.connectStepTimes.first.isAtSameMomentAs(firstRun.first),
-        isFalse,
-      );
-    },
-  );
+    // choosingSections has no edge back to resultsAvailable, so the
+    // reachable clear-and-refill path is retry after a failed connect.
+    final retryStart = DateTime.now();
+    await controller.retryConnect();
+    expect(controller.phase, SessionPhase.connectionError);
+    // The retry's stamps replace the failed run's: parity with the step
+    // list (an append would double it) and every stamp lands at or after
+    // the moment the retry began (direct wall-clock comparison ties on
+    // Windows clock resolution, so compare against the retry boundary).
+    expect(controller.connectStepTimes.length, controller.connectSteps.length);
+    expect(controller.connectStepTimes.length, failedStampCount);
+    for (final stamp in controller.connectStepTimes) {
+      expect(stamp.isBefore(retryStart), isFalse);
+    }
+  });
 
   test('connect failure → connectionError → switch back to results', () async {
     final source = FakeSource();

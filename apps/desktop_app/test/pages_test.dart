@@ -815,14 +815,14 @@ void main() {
     await tester.ensureVisible(find.text('取消会话'));
     await tester.pump();
     await tester.tap(find.text('取消会话'));
-    await settle(tester, 2);
+    await settle(tester, 12); // dialog open animation is 150ms
     expect(find.text('取消本次会话？'), findsOneWidget);
     expect(find.text('继续编辑'), findsOneWidget);
     expect(find.text('放弃并退出'), findsOneWidget);
 
     // Keep editing: dialog closes, the round and drafts stay.
     await tester.tap(find.text('继续编辑'));
-    await settle(tester, 2);
+    await settle(tester, 12); // let the route exit animation finish
     expect(controller.phase, SessionPhase.editingConfig);
     expect(find.text('取消本次会话？'), findsNothing);
     expect((controller.drafts['wifi'] as WifiSection).ssid, 'Office-2.4G');
@@ -831,7 +831,7 @@ void main() {
     await tester.ensureVisible(find.text('取消会话'));
     await tester.pump();
     await tester.tap(find.text('取消会话'));
-    await settle(tester, 2);
+    await settle(tester, 12);
     await tester.tap(find.text('放弃并退出'));
     await settle(tester);
     expect(controller.phase, SessionPhase.scanning);
