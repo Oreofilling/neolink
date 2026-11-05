@@ -104,8 +104,7 @@ class _NLButtonState extends State<NLButton> {
       mouseCursor: enabled
           ? SystemMouseCursors.click
           : SystemMouseCursors.basic,
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
+      onShowHoverHighlight: (value) => setState(() => _hovered = value),
       onFocusChange: (value) => setState(() => _focused = value),
       actions: {
         ActivateIntent: CallbackAction<ActivateIntent>(

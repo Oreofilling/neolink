@@ -1,3 +1,4 @@
+import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:neolink_ui/neolink_ui.dart';
@@ -110,17 +111,17 @@ void main() {
         ),
       ),
     );
-    final gesture = await tester.createPointerGesture(
-      offset: Offset.zero,
-      pointerLocation: tester.getCenter(find.text('悬停我')),
-    );
+    final gesture = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    await gesture.addPointer();
+    addTearDown(gesture.removePointer);
+    await tester.pump();
+    // Hover: move the mouse pointer onto the button, then press and release.
+    await gesture.moveTo(tester.getCenter(find.text('悬停我')));
     await tester.pump(const Duration(milliseconds: 200));
-    // Pressed state: pointer down over the button, then released.
     await gesture.down(tester.getCenter(find.text('悬停我')));
     await tester.pump(const Duration(milliseconds: 200));
-    await gesture.up(tester.getCenter(find.text('悬停我')));
+    await gesture.up();
     await tester.pump(const Duration(milliseconds: 200));
-    await gesture.removePointer();
     expect(find.text('悬停我'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
