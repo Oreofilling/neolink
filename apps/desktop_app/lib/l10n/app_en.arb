@@ -194,6 +194,7 @@
   "chRemarkBle": "CT-Prov advertising · active scan",
   "chRemarkAp": "Adapter enumeration · admin rights needed",
   "chRemarkDisc": "Network discovery · LAN multicast listener",
+  "scanChannelOpenWifiSettings": "Open Wi-Fi settings",
   "tbDevice": "Device",
   "tbChannel": "Channel",
   "tbSignalCol": "Signal",

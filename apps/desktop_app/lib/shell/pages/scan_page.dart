@@ -6,6 +6,8 @@ import 'package:provisioning_session/provisioning_session.dart';
 import '../../l10n/app_localizations.dart';
 import '../../l10n/channel_labels.dart';
 import '../../provisioning/provisioning_controller.dart';
+import '../../services/environment_probe.dart';
+import '../../services/wifi_settings_opener.dart';
 import '../widgets/scan_radar.dart';
 
 /// Device scan page (v6): a one-line channel status strip up top, then the
@@ -18,10 +20,19 @@ import '../widgets/scan_radar.dart';
 /// demand via the toggle); rows fade in, hover-highlight and hold a quiet
 /// connect action that only strengthens on hover/focus.
 class ScanPage extends StatefulWidget {
-  const ScanPage({super.key, required this.controller, this.onOpenGuide});
+  const ScanPage({
+    super.key,
+    required this.controller,
+    this.onOpenGuide,
+    this.wifiSettingsOpener,
+  });
 
   final ProvisioningController controller;
   final VoidCallback? onOpenGuide;
+
+  /// Test injection for the "open system Wi-Fi settings" action; null
+  /// uses the real [openWifiSettings] service.
+  final WifiSettingsOpener? wifiSettingsOpener;
 
   @override
   State<ScanPage> createState() => _ScanPageState();
@@ -36,6 +47,17 @@ class _ScanPageState extends State<ScanPage> {
   String? _hoveredCandidateId;
 
   ProvisioningController get controller => widget.controller;
+
+  /// Launch failure is non-fatal (the OS owns that page); log and move
+  /// on rather than surfacing a dead-end error dialog.
+  Future<void> _openWifiSettings() async {
+    final opener = widget.wifiSettingsOpener ?? openWifiSettings;
+    try {
+      await opener();
+    } catch (error) {
+      debugPrint('open Wi-Fi settings failed: $error');
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -364,6 +386,19 @@ class _ScanPageState extends State<ScanPage> {
             ),
             const SizedBox(height: 8),
             Text(remark, style: NLType.aux.copyWith(color: c.mutedForeground)),
+            // M5 task 1: a disabled WLAN adapter is user-fixable, so the
+            // degraded card offers the system Wi-Fi page directly.
+            if (entry.channel == DiscoveryChannel.accessPoint &&
+                entry.reason == kWlanDisabledReason) ...[
+              const SizedBox(height: 8),
+              NLButton(
+                label: l.scanChannelOpenWifiSettings,
+                icon: Icons.open_in_new,
+                variant: NLButtonVariant.ghost,
+                size: NLButtonSize.xs,
+                onPressed: _openWifiSettings,
+              ),
+            ],
             // §13.1: with several NICs / VPN / virtual adapters around, the
             // user can see which interfaces (and subnets) the listener
             // joined. Hidden while empty (before the scan starts).

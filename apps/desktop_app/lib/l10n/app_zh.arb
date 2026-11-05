@@ -194,6 +194,7 @@
   "chRemarkBle": "CT-Prov 广播 · 主动扫描",
   "chRemarkAp": "网卡枚举 · 需管理员权限",
   "chRemarkDisc": "组网发现 · 局域网组播监听",
+  "scanChannelOpenWifiSettings": "打开系统 Wi-Fi 设置",
   "tbDevice": "设备",
   "tbChannel": "通道",
   "tbSignalCol": "信号",

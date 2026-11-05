@@ -6,6 +6,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:ble_universal/ble_universal.dart';
+import 'package:ct_disc_adapter/ct_disc_adapter.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:communication_domain/communication_domain.dart';
@@ -16,6 +17,7 @@ import 'package:desktop_app/app.dart';
 import 'package:desktop_app/provisioning/provisioning_controller.dart';
 import 'package:desktop_app/services/environment_probe.dart';
 import 'package:desktop_app/services/settings_store.dart';
+import 'package:desktop_app/services/wifi_settings_opener.dart';
 import 'package:desktop_app/shell/widgets/scan_radar.dart';
 
 import 'provisioning_fakes.dart';
@@ -51,6 +53,7 @@ Future<void> pumpApp(
   WidgetTester tester,
   ProvisioningController controller, {
   SettingsStore? settings,
+  WifiSettingsOpener? wifiSettingsOpener,
 }) async {
   // v7c: the scan page pins the QR strip at the bottom, so the scroll
   // viewport loses ~68px. Exercise a realistic desktop window (1280x900)
@@ -65,6 +68,7 @@ Future<void> pumpApp(
     NeoLinkApp(
       controller: controller,
       settings: settings ?? SettingsStore.none(),
+      wifiSettingsOpener: wifiSettingsOpener,
     ),
   );
 }
@@ -161,6 +165,13 @@ void main() {
     expect(find.text('AP'), findsWidgets);
     expect(find.text('暂不支持连接'), findsOneWidget);
     expect(find.text('连接'), findsNothing);
+
+    // 结果页保持 3s 清扫定时器（同忙候选用例）：重扫清空注册表后
+    // 泵过扫描窗口收敛回空态，无悬挂定时器。
+    await tester.tap(find.text('重新扫描'));
+    await tester.pump(const Duration(milliseconds: 16));
+    await tester.pump(const Duration(seconds: 21));
+    expect(controller.phase, SessionPhase.scanEmpty);
   });
 
   testWidgets('连接失败：错误卡展示原因并可返回设备列表', (tester) async {
@@ -606,6 +617,13 @@ void main() {
       environmentProbe: DesktopEnvironmentProbe(
         probeBle: () => gate.future,
         enumerateAdapters: () async => '[{"Name":"Wi-Fi","Status":"Up","PhysicalMediaType":"Native 802.11"}]',
+        nicEnumerator: ({bool includeVirtual = false}) async => [
+          NicEndpoint(
+            interfaceName: 'Ethernet',
+            address: InternetAddress('192.168.93.20'),
+            nicClass: NicClass.physical,
+          ),
+        ],
       ),
       discoverySource: source,
       establishPairing: (_) async {},
@@ -808,6 +826,8 @@ void main() {
     expect(find.text('蓝牙 BLE'), findsOneWidget);
     expect(find.text('无线网卡（AP）'), findsOneWidget);
     expect(find.text('CT-Disc（预留）'), findsOneWidget);
+    // 通道可用时没有「打开系统 Wi-Fi 设置」入口（M5：仅受限卡展示）。
+    expect(find.text('打开系统 Wi-Fi 设置'), findsNothing);
 
     await tester.tap(find.text('收起'));
     await settle(tester, 2);
@@ -815,6 +835,53 @@ void main() {
     expect(find.text('查看详情'), findsOneWidget);
 
     // Pump past the scan window so no timer dangles at teardown.
+    await tester.pump(const Duration(seconds: 21));
+    expect(controller.phase, SessionPhase.scanEmpty);
+  });
+
+  testWidgets('M5 AP 通道受限（网卡禁用）：详情卡提供打开系统 Wi-Fi 设置', (tester) async {
+    final source = FakeSource();
+    final device = FakeCtDevice();
+    // 无线网卡全部 Disabled → AP 通道 limited / wlan_disabled。
+    final controller = ProvisioningController(
+      environmentProbe: DesktopEnvironmentProbe(
+        probeBle: () async => const CtEnvironmentReport(
+          readiness: CtBleReadiness.ready,
+          detail: 'fake ready',
+        ),
+        enumerateAdapters: () async =>
+            '[{"Name":"Wi-Fi","Status":"Disabled","PhysicalMediaType":"Native 802.11"}]',
+        nicEnumerator: ({bool includeVirtual = false}) async => [],
+      ),
+      discoverySource: source,
+      establishPairing: (_) async {},
+      connectChannel: (_, __) async => device,
+      linkEvents: (_) => const Stream<bool>.empty(),
+      // 零等待跳过通道走查与倒计时，直达扫描页（同 wiredController 语义）。
+      selfCheckHold: Duration.zero,
+    );
+    addTearDown(source.close);
+    addTearDown(device.close);
+    addTearDown(controller.dispose);
+
+    var opened = 0;
+    await pumpApp(tester, controller, wifiSettingsOpener: () async {
+      opened++;
+      return true;
+    });
+    await settle(tester); // 自检放行 → 扫描页
+
+    // 紧凑条先呈现受限；入口只在展开的详情卡上。
+    expect(find.text('AP 受限'), findsOneWidget);
+    expect(find.text('打开系统 Wi-Fi 设置'), findsNothing);
+    await tester.tap(find.text('查看详情'));
+    await settle(tester, 2);
+    expect(find.text('打开系统 Wi-Fi 设置'), findsOneWidget);
+
+    await tester.tap(find.text('打开系统 Wi-Fi 设置'));
+    await settle(tester, 2);
+    expect(opened, 1);
+
     await tester.pump(const Duration(seconds: 21));
     expect(controller.phase, SessionPhase.scanEmpty);
   });

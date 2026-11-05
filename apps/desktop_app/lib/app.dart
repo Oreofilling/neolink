@@ -6,6 +6,7 @@ import 'package:neolink_ui/neolink_ui.dart';
 import 'l10n/app_localizations.dart';
 import 'provisioning/provisioning_controller.dart';
 import 'services/settings_store.dart';
+import 'services/wifi_settings_opener.dart';
 import 'shell/shell.dart';
 
 /// M0 空壳 + M2 会话接线：侧栏导航 + 顶栏主题/语言切换 + 相位驱动页面
@@ -15,13 +16,21 @@ import 'shell/shell.dart';
 /// 写入 %APPDATA% 持久化，重启保持。控制器默认自建（桌面真机依赖），
 /// 测试可注入替身与禁用的设置存储。
 class NeoLinkApp extends StatefulWidget {
-  const NeoLinkApp({super.key, this.controller, this.settings});
+  const NeoLinkApp({
+    super.key,
+    this.controller,
+    this.settings,
+    this.wifiSettingsOpener,
+  });
 
   /// 测试注入用；为空时自建并随组件销毁释放。
   final ProvisioningController? controller;
 
   /// 设置存储；为空时用 %APPDATA% 默认路径，测试传 [SettingsStore.none]。
   final SettingsStore? settings;
+
+  /// 直通扫描页的「打开系统 Wi-Fi 设置」动作（测试注入）。
+  final WifiSettingsOpener? wifiSettingsOpener;
 
   @override
   State<NeoLinkApp> createState() => _NeoLinkAppState();
@@ -66,6 +75,7 @@ class _NeoLinkAppState extends State<NeoLinkApp> {
       home: AppShell(
         controller: _controller,
         dark: _mode == ThemeMode.dark,
+        wifiSettingsOpener: widget.wifiSettingsOpener,
         onToggleTheme: () {
           setState(
             () => _mode = _mode == ThemeMode.light

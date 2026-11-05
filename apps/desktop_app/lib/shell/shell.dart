@@ -6,6 +6,7 @@ import 'package:provisioning_session/provisioning_session.dart';
 import '../app_metadata.dart';
 import '../l10n/app_localizations.dart';
 import '../provisioning/provisioning_controller.dart';
+import '../services/wifi_settings_opener.dart';
 import 'pages/config_page.dart';
 import 'pages/connect_page.dart';
 import 'pages/history_page.dart';
@@ -28,9 +29,14 @@ class AppShell extends StatefulWidget {
     required this.onToggleTheme,
     required this.langLabel,
     required this.onToggleLocale,
+    this.wifiSettingsOpener,
   });
 
   final ProvisioningController controller;
+
+  /// Passed through to the scan page (test injection).
+  final WifiSettingsOpener? wifiSettingsOpener;
+
   final bool dark;
   final VoidCallback onToggleTheme;
   final String langLabel;
@@ -125,7 +131,11 @@ class _AppShellState extends State<AppShell> {
           'connect' => ConnectPage(controller: controller),
           'config' => ConfigPage(controller: controller),
           'result' => ResultPage(controller: controller),
-          _ => ScanPage(controller: controller, onOpenGuide: _openGuide),
+          _ => ScanPage(
+              controller: controller,
+              onOpenGuide: _openGuide,
+              wifiSettingsOpener: widget.wifiSettingsOpener,
+            ),
         };
       case 'qrguide':
         return QrGuidePage(
@@ -143,7 +153,11 @@ class _AppShellState extends State<AppShell> {
           onToggleLocale: widget.onToggleLocale,
         );
       default:
-        return ScanPage(controller: controller, onOpenGuide: _openGuide);
+        return ScanPage(
+          controller: controller,
+          onOpenGuide: _openGuide,
+          wifiSettingsOpener: widget.wifiSettingsOpener,
+        );
     }
   }
 

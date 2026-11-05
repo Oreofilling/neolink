@@ -17,6 +17,11 @@ import 'package:ct_disc_adapter/ct_disc_adapter.dart';
 /// 无线网卡在 Get-NetAdapter 里的 PhysicalMediaType 取值。
 const String kWlanMediaType = 'Native 802.11';
 
+/// AP channel limited because every WLAN adapter is disabled — the one
+/// degraded state the scan page can offer to fix by opening the system
+/// Wi-Fi settings page.
+const String kWlanDisabledReason = 'wlan_disabled';
+
 /// 网卡枚举命令（ConvertTo-Json 单网卡时输出对象而非数组，解析层兼容）。
 const String kAdapterQuery =
     'Get-NetAdapter -Physical | Select-Object Name,Status,PhysicalMediaType'
@@ -85,7 +90,7 @@ ChannelReadiness apChannelReadiness(List<NetAdapterInfo>? adapters) {
     return const ChannelReadiness(
       channel: DiscoveryChannel.accessPoint,
       capability: ChannelCapability.limited,
-      reason: 'wlan_disabled',
+      reason: kWlanDisabledReason,
     );
   }
   return const ChannelReadiness(
