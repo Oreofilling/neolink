@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:neolink_ui/neolink_ui.dart';
 import 'package:provisioning_session/provisioning_session.dart';
 
+import '../app_metadata.dart';
 import '../l10n/app_localizations.dart';
 import '../provisioning/provisioning_controller.dart';
 import 'pages/config_page.dart';
@@ -150,14 +151,19 @@ class _AppShellState extends State<AppShell> {
 
   Widget _sidebar(NLColors c) {
     final l = AppLocalizations.of(context)!;
+    // v7d: the sidebar narrows to 180 and gets its own surface (one step
+    // above the page background, below cards) so the workspace reads as a
+    // separate column instead of a stretched widget rail.
     return Container(
-      width: 200,
-      color: c.card,
+      width: 180,
+      color: c.sidebar,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Brand header gets extra breathing room above the nav — the
+          // logo block is a header, not the first list row.
           Padding(
-            padding: const EdgeInsets.fromLTRB(14, 18, 14, 14),
+            padding: const EdgeInsets.fromLTRB(14, 22, 14, 16),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -174,10 +180,10 @@ class _AppShellState extends State<AppShell> {
                     ),
                   ],
                 ),
-                const SizedBox(height: 4),
+                const SizedBox(height: 5),
                 Text(
                   l.brandSubtitle,
-                  style: TextStyle(fontSize: 10, color: c.mutedForeground),
+                  style: NLType.aux.copyWith(color: c.mutedForeground),
                 ),
               ],
             ),
@@ -210,9 +216,73 @@ class _AppShellState extends State<AppShell> {
               ],
             ),
           ),
+          _sidebarFooter(c, l),
         ],
       ),
     );
+  }
+
+  /// Fixed footer under the nav: the shipped version plus the BLE adapter
+  /// state (mirrors the topbar badge so the sidebar stands alone). The
+  /// version string also ships as the exe's version resource.
+  Widget _sidebarFooter(NLColors c, AppLocalizations l) {
+    final (label, color) = _bleState(l);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Divider(height: 1, thickness: 1, color: c.border),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'NeoLink v$appVersion',
+                style: NLType.mono.copyWith(color: c.mutedForeground),
+              ),
+              const SizedBox(height: 5),
+              Row(
+                children: [
+                  Container(
+                    width: 6,
+                    height: 6,
+                    decoration: BoxDecoration(
+                      color: color,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Flexible(
+                    child: Text(
+                      label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: NLType.aux.copyWith(color: c.mutedForeground),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// BLE adapter readiness from the last environment report as a plain
+  /// (label, dot-color) pair — shared by the topbar badge and the sidebar
+  /// footer.
+  (String, Color) _bleState(AppLocalizations l) {
+    final c = context.nl;
+    final entry = controller.environmentReport?.channels
+        .where((channel) => channel.channel == DiscoveryChannel.ble)
+        .firstOrNull;
+    return switch (entry?.capability) {
+      null => (l.topbarBleChecking, c.info),
+      ChannelCapability.available => (l.topbarBleReady, c.success),
+      ChannelCapability.limited => (l.topbarBleLimited, c.warning),
+      ChannelCapability.unavailable => (l.topbarBleUnavailable, c.error),
+    };
   }
 
   Widget _navItem(
@@ -224,35 +294,52 @@ class _AppShellState extends State<AppShell> {
   }) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 2),
-      child: Material(
-        color: active ? c.muted : Colors.transparent,
-        borderRadius: BorderRadius.circular(NLRadii.radiusMd),
-        child: InkWell(
+      child: AnimatedContainer(
+        duration: NLDurations.fast,
+        decoration: BoxDecoration(
+          // v7d: the active destination gets a very light cyan fill plus a
+          // 3px brand-cyan bar on its left edge — the "you are here" mark
+          // is cyan, never a status color.
+          color: active ? c.accentCyanBg : Colors.transparent,
           borderRadius: BorderRadius.circular(NLRadii.radiusMd),
-          onTap: onTap,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
-            child: Row(
-              children: [
-                Icon(
-                  icon,
-                  size: 16,
-                  color: active ? c.foreground : c.mutedForeground,
-                ),
-                const SizedBox(width: 8),
-                Flexible(
-                  child: Text(
-                    label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: active ? c.foreground : c.mutedForeground,
-                      fontWeight: active ? FontWeight.w600 : FontWeight.w500,
+          border: Border(
+            left: BorderSide(
+              color: active ? c.accentCyan : Colors.transparent,
+              width: 3,
+            ),
+          ),
+        ),
+        child: Material(
+          color: Colors.transparent,
+          borderRadius: BorderRadius.circular(NLRadii.radiusMd),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(NLRadii.radiusMd),
+            hoverColor: c.hoverBg,
+            onTap: onTap,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+              child: Row(
+                children: [
+                  Icon(
+                    icon,
+                    size: 16,
+                    color: active ? c.accentCyan : c.mutedForeground,
+                  ),
+                  const SizedBox(width: 8),
+                  Flexible(
+                    child: Text(
+                      label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: active ? c.foreground : c.mutedForeground,
+                        fontWeight: active ? FontWeight.w600 : FontWeight.w500,
+                      ),
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
@@ -320,18 +407,13 @@ class _AppShellState extends State<AppShell> {
     final entry = controller.environmentReport?.channels
         .where((channel) => channel.channel == DiscoveryChannel.ble)
         .firstOrNull;
-    final (label, variant) = switch (entry?.capability) {
-      null => (l.topbarBleChecking, NLBadgeVariant.info),
-      ChannelCapability.available => (
-        l.topbarBleReady,
-        NLBadgeVariant.success,
-      ),
-      ChannelCapability.limited => (l.topbarBleLimited, NLBadgeVariant.warning),
-      ChannelCapability.unavailable => (
-        l.topbarBleUnavailable,
-        NLBadgeVariant.error,
-      ),
+    final variant = switch (entry?.capability) {
+      null => NLBadgeVariant.info,
+      ChannelCapability.available => NLBadgeVariant.success,
+      ChannelCapability.limited => NLBadgeVariant.warning,
+      ChannelCapability.unavailable => NLBadgeVariant.error,
     };
+    final (label, _) = _bleState(l);
     return NLBadge(label: label, variant: variant, dot: entry == null);
   }
 

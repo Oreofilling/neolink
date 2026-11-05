@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:neolink_ui/neolink_ui.dart';
 import 'package:provisioning_session/provisioning_session.dart';
@@ -5,18 +7,51 @@ import 'package:provisioning_session/provisioning_session.dart';
 import '../../l10n/app_localizations.dart';
 import '../../provisioning/provisioning_controller.dart';
 
-/// 建立连接页（M2-4）：配对 → GATT 链路 → 读设备信息 → 读能力，全程
-/// 骨架屏加分步进度；连接/能力失败给出原因并可返回候选列表重试
-/// （NE101 断开后仍在配置模式，可立即重试）。
-class ConnectPage extends StatelessWidget {
+/// 建立连接页（v7d timeline）：配对 → GATT 链路 → 读设备信息 → 读能力，
+/// 纵向时间线呈现——已完成绿勾、当前步青色脉冲点、未开始灰圈，连接线
+/// 按进度着色，右侧显示每步耗时；连接/能力失败给出原因并可返回候选
+/// 列表重试（NE101 断开后仍在配置模式，可立即重试）。
+class ConnectPage extends StatefulWidget {
   const ConnectPage({super.key, required this.controller});
 
   final ProvisioningController controller;
 
   @override
+  State<ConnectPage> createState() => _ConnectPageState();
+}
+
+class _ConnectPageState extends State<ConnectPage> {
+  /// 1s repaint while the link is advancing — keeps the current step's
+  /// elapsed counter alive even when no controller notification fires
+  /// (a hung read shows a growing timer, which is exactly the diagnostic
+  /// signal this page wants to give).
+  Timer? _ticker;
+
+  @override
+  void dispose() {
+    _ticker?.cancel();
+    super.dispose();
+  }
+
+  ProvisioningController get controller => widget.controller;
+
+  @override
   Widget build(BuildContext context) {
     final c = context.nl;
     final l = AppLocalizations.of(context)!;
+    // The ticker only runs while the chain is advancing — it stops on the
+    // error pages so the failure state stays static.
+    final advancing =
+        controller.phase == SessionPhase.connecting ||
+        controller.phase == SessionPhase.readingCapabilities;
+    if (advancing && _ticker == null) {
+      _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
+        if (mounted) setState(() {});
+      });
+    } else if (!advancing && _ticker != null) {
+      _ticker!.cancel();
+      _ticker = null;
+    }
 
     return ListenableBuilder(
       listenable: controller,
@@ -32,15 +67,9 @@ class ConnectPage extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  l.navConnect,
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
+                Text(l.navConnect, style: NLType.pageTitle),
                 const SizedBox(height: 16),
-                if (failed) _errorCard(c, l, phase) else _progressCard(c, l),
+                if (failed) _errorBanner(c, l, phase) else _timelineCard(c, l),
               ],
             ),
           ),
@@ -57,7 +86,7 @@ class ConnectPage extends StatelessWidget {
     return '${candidate.modelHint ?? ''}-${candidate.macSuffix ?? ''}';
   }
 
-  Widget _progressCard(NLColors c, AppLocalizations l) {
+  Widget _timelineCard(NLColors c, AppLocalizations l) {
     final phase = controller.phase;
     final steps = [
       l.connectPairing,
@@ -86,45 +115,17 @@ class ConnectPage extends StatelessWidget {
               dot: true,
             ),
             const SizedBox(height: 16),
+            // v7d vertical timeline: done steps get a green check, the
+            // current one a pulsing brand-cyan dot (the one moving part),
+            // later ones hollow circles; the connecting rail is green up
+            // to the current step and hairline after it.
             for (var index = 0; index < steps.length; index++)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: Row(
-                  children: [
-                    SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: index < currentIndex
-                          ? Icon(Icons.check, size: 16, color: c.foreground)
-                          : (index == currentIndex
-                                ? const SizedBox(
-                                    width: 12,
-                                    height: 12,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                    ),
-                                  )
-                                : Icon(
-                                    Icons.circle_outlined,
-                                    size: 12,
-                                    color: c.mutedForeground,
-                                  )),
-                    ),
-                    const SizedBox(width: 10),
-                    Text(
-                      steps[index],
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: index <= currentIndex
-                            ? c.foreground
-                            : c.mutedForeground,
-                        fontWeight: index == currentIndex
-                            ? FontWeight.w600
-                            : FontWeight.w500,
-                      ),
-                    ),
-                  ],
-                ),
+              _timelineRow(
+                c,
+                steps[index],
+                index,
+                currentIndex,
+                total: steps.length,
               ),
             if (controller.connectSteps.isNotEmpty) ...[
               const SizedBox(height: 8),
@@ -132,11 +133,7 @@ class ConnectPage extends StatelessWidget {
               const SizedBox(height: 10),
               Text(
                 controller.connectSteps.last,
-                style: TextStyle(
-                  fontSize: 10,
-                  fontFamily: 'JetBrains Mono',
-                  color: c.mutedForeground,
-                ),
+                style: NLType.mono.copyWith(color: c.mutedForeground),
               ),
             ],
             const SizedBox(height: 12),
@@ -154,53 +151,198 @@ class ConnectPage extends StatelessWidget {
     );
   }
 
-  Widget _errorCard(NLColors c, AppLocalizations l, SessionPhase phase) {
+  /// One timeline row: leading status marker + connector down to the next
+  /// row, label, and the step's elapsed time on the right.
+  Widget _timelineRow(
+    NLColors c,
+    String label,
+    int index,
+    int currentIndex, {
+    required int total,
+  }) {
+    final done = index < currentIndex;
+    final current = index == currentIndex;
+    final hasConnector = index < total - 1;
+    final duration = _stepDuration(index, currentIndex);
+    return IntrinsicHeight(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SizedBox(
+            width: 22,
+            child: Column(
+              children: [
+                SizedBox(
+                  height: 20,
+                  child: Center(
+                    child: done
+                        ? Icon(Icons.check_circle, size: 17, color: c.success)
+                        : current
+                        ? const _PulseDot()
+                        : Icon(
+                            Icons.circle_outlined,
+                            size: 12,
+                            color: c.mutedForeground,
+                          ),
+                  ),
+                ),
+                if (hasConnector)
+                  Expanded(
+                    child: Container(
+                      width: 2,
+                      color: done ? c.success : c.border,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Padding(
+              padding: EdgeInsets.only(bottom: hasConnector ? 14 : 0),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      label,
+                      style: NLType.body.copyWith(
+                        color: index <= currentIndex
+                            ? c.foreground
+                            : c.mutedForeground,
+                        fontWeight: current ? FontWeight.w600 : FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                  if (duration != null)
+                    Text(
+                      duration,
+                      style: NLType.mono.copyWith(color: c.mutedForeground),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Elapsed for step [index]: stamped steps bracket the duration; the
+  /// running step counts up from its stamp to now (null = not started).
+  String? _stepDuration(int index, int currentIndex) {
+    final times = controller.connectStepTimes;
+    if (index >= times.length) return null;
+    if (index < currentIndex && index + 1 < times.length) {
+      return _formatElapsed(times[index + 1].difference(times[index]));
+    }
+    if (index == currentIndex) {
+      return _formatElapsed(DateTime.now().difference(times[index]));
+    }
+    return null;
+  }
+
+  static String _formatElapsed(Duration d) {
+    if (d.inMilliseconds < 1000) return '<1s';
+    return '${(d.inMilliseconds / 1000).toStringAsFixed(1)}s';
+  }
+
+  /// v7d error treatment: light red fill with a 3px red left bar instead
+  /// of a bordered card — errors are states, not content blocks.
+  Widget _errorBanner(NLColors c, AppLocalizations l, SessionPhase phase) {
     final problem = controller.lastProblem;
     final detail = problem == null ? '' : (problem.message ?? problem.reason);
-    return NLCard(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            NLBadge(
-              label: phase == SessionPhase.capabilityError
-                  ? l.connectCapsErrorTitle
-                  : l.connectErrorTitle,
-              variant: NLBadgeVariant.error,
-            ),
-            const SizedBox(height: 10),
-            Text(
-              l.connectRetryHint,
-              style: TextStyle(fontSize: 12, color: c.mutedForeground),
-            ),
-            if (detail.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              Text(
-                detail,
-                style: TextStyle(
-                  fontSize: 10,
-                  fontFamily: 'JetBrains Mono',
-                  color: c.mutedForeground,
-                ),
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: c.errorBg,
+        borderRadius: BorderRadius.circular(NLRadii.radiusLg),
+        border: Border(left: BorderSide(color: c.error, width: 3)),
+      ),
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            phase == SessionPhase.capabilityError
+                ? l.connectCapsErrorTitle
+                : l.connectErrorTitle,
+            style: NLType.cardTitle.copyWith(color: c.error),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            l.connectRetryHint,
+            style: NLType.aux.copyWith(color: c.mutedForeground),
+          ),
+          if (detail.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Text(detail, style: NLType.mono.copyWith(color: c.mutedForeground)),
+          ],
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              // Same candidate straight through the connect chain again —
+              // the device stays in config mode after the dropped link.
+              NLButton(
+                label: l.connectRetry,
+                onPressed: controller.retryConnect,
+              ),
+              const SizedBox(width: 8),
+              NLButton(
+                label: l.connectBackToList,
+                variant: NLButtonVariant.secondary,
+                onPressed: controller.switchCandidate,
               ),
             ],
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                // Same candidate straight through the connect chain again —
-                // the device stays in config mode after the dropped link.
-                NLButton(
-                  label: l.connectRetry,
-                  onPressed: controller.retryConnect,
-                ),
-                const SizedBox(width: 8),
-                NLButton(
-                  label: l.connectBackToList,
-                  variant: NLButtonVariant.secondary,
-                  onPressed: controller.switchCandidate,
-                ),
-              ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Pulsing brand-cyan marker for the in-flight timeline step: a 10px dot
+/// breathing between 0.85–1.15 scale with a soft halo. The only looping
+/// animation on the page — one moving part reads "working", five read
+/// "carnival".
+class _PulseDot extends StatefulWidget {
+  const _PulseDot();
+
+  @override
+  State<_PulseDot> createState() => _PulseDotState();
+}
+
+class _PulseDotState extends State<_PulseDot>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1200),
+  )..repeat(reverse: true);
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.nl;
+    return ScaleTransition(
+      scale: Tween(
+        begin: 0.85,
+        end: 1.15,
+      ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeInOut)),
+      child: Container(
+        width: 11,
+        height: 11,
+        decoration: BoxDecoration(
+          color: c.accentCyan,
+          shape: BoxShape.circle,
+          boxShadow: [
+            BoxShadow(
+              color: c.accentCyan.withValues(alpha: 0.35),
+              blurRadius: 7,
+              spreadRadius: 1.5,
             ),
           ],
         ),

@@ -9,10 +9,10 @@ import '../../provisioning/provisioning_controller.dart';
 
 /// Boot self-check page (v6): the app opens here — a centered card walks the
 /// three discovery channels, then counts down into the scan automatically.
-/// Any click on the page cancels the countdown (v6: click-to-stay — the old
-/// stay button is gone); the only persistent control is the re-check icon in
-/// the card's top-right corner. Later re-checks refresh the report from the
-/// settings page's adapter rows too.
+/// v7d: the implicit click-anywhere-to-stay is gone — an explicit pause
+/// button beside the countdown stops the auto-jump; the re-check icon in
+/// the card's top-right corner persists across states. Later re-checks
+/// refresh the report from the settings page's adapter rows too.
 class SelfcheckPage extends StatefulWidget {
   const SelfcheckPage({super.key, required this.controller});
 
@@ -51,7 +51,6 @@ class _SelfcheckPageState extends State<SelfcheckPage> {
         // v6 walk: after the report lands the rows are revealed one-by-one —
         // the row at selfCheckWalkIndex is mid-check, later rows stay queued.
         final walkIndex = controller.selfCheckWalkIndex;
-        final walking = walkIndex >= 0;
         final idle = controller.phase != SessionPhase.selfChecking;
         // Round-3 A2: every check gives visible feedback — the running label
         // while in flight, and a last-checked stamp afterwards.
@@ -63,20 +62,8 @@ class _SelfcheckPageState extends State<SelfcheckPage> {
             : held
             ? l.selfcheckHeld
             : (report.canProceed ? l.selfcheckReady : l.selfcheckBlocked);
-        return GestureDetector(
-          // Click-to-stay (v6): any tap on the page — empty space included —
-          // stops the auto-jump, during the walk and the countdown alike.
-          // Real buttons still win the gesture arena, so this only fires on
-          // non-interactive areas.
-          behavior: HitTestBehavior.opaque,
-          onTap: () {
-            if (controller.selfCheckCountdown != null ||
-                controller.selfCheckWalkIndex >= 0) {
-              controller.stayOnSelfCheck();
-            }
-          },
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(24, 28, 24, 20),
+        return SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(24, 28, 24, 20),
             child: Center(
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 520),
@@ -125,16 +112,12 @@ class _SelfcheckPageState extends State<SelfcheckPage> {
                                     children: [
                                       Text(
                                         l.navSelfcheck,
-                                        style: const TextStyle(
-                                          fontSize: 18,
-                                          fontWeight: FontWeight.w700,
-                                        ),
+                                        style: NLType.pageTitle,
                                       ),
                                       const SizedBox(height: 6),
                                       Text(
                                         status,
-                                        style: TextStyle(
-                                          fontSize: 12,
+                                        style: NLType.aux.copyWith(
                                           color: c.mutedForeground,
                                         ),
                                       ),
@@ -166,6 +149,9 @@ class _SelfcheckPageState extends State<SelfcheckPage> {
                             const SizedBox(height: 16),
                             // Round-2 A1: big countdown digits plus a draining
                             // bar sitting right above the action buttons.
+                            // v7d: the pause button beside the digits is the
+                            // one explicit way to stop the auto-jump — no
+                            // more click-anywhere.
                             if (counting != null) ...[
                               Row(
                                 crossAxisAlignment: CrossAxisAlignment.end,
@@ -183,11 +169,20 @@ class _SelfcheckPageState extends State<SelfcheckPage> {
                                     padding: const EdgeInsets.only(bottom: 3),
                                     child: Text(
                                       l.selfcheckCountdownHint,
-                                      style: TextStyle(
-                                        fontSize: 12,
+                                      style: NLType.aux.copyWith(
                                         color: c.mutedForeground,
                                       ),
                                     ),
+                                  ),
+                                  const Spacer(),
+                                  IconButton(
+                                    tooltip: l.btnPauseCountdown,
+                                    icon: Icon(
+                                      Icons.pause_circle_outline,
+                                      size: 26,
+                                      color: c.accentCyan,
+                                    ),
+                                    onPressed: controller.stayOnSelfCheck,
                                   ),
                                 ],
                               ),
@@ -217,33 +212,10 @@ class _SelfcheckPageState extends State<SelfcheckPage> {
                               ),
                               const SizedBox(height: 12),
                             ],
-                            // v6: the click-to-stop hint rides along with both
-                            // the walk and the countdown.
-                            if (walking || counting != null)
-                              Padding(
-                                padding: const EdgeInsets.only(bottom: 12),
-                                child: Row(
-                                  children: [
-                                    Icon(
-                                      Icons.touch_app,
-                                      size: 13,
-                                      color: c.mutedForeground,
-                                    ),
-                                    const SizedBox(width: 6),
-                                    Flexible(
-                                      child: Text(
-                                        l.selfcheckClickHold,
-                                        style: TextStyle(
-                                          fontSize: 11,
-                                          color: c.mutedForeground,
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            // Click anywhere to hold the page (v6); the only
-                            // button left is the jump-now override.
+                            // v7d: while the walk plays, the pause button in
+                            // the header-less state is the scan-now jump —
+                            // the row-level walk cannot be paused anymore
+                            // (it reveals in under two seconds total).
                             if (counting != null || held)
                               NLButton(
                                 label: l.btnScanNow,
@@ -257,10 +229,8 @@ class _SelfcheckPageState extends State<SelfcheckPage> {
                                   l.selfcheckLastRun(
                                     _clock(controller.selfCheckAt!),
                                   ),
-                                  style: TextStyle(
-                                    fontSize: 11,
+                                  style: NLType.mono.copyWith(
                                     color: c.mutedForeground,
-                                    fontFamily: 'JetBrains Mono',
                                   ),
                                 ),
                               ),

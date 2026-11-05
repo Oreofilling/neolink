@@ -278,7 +278,9 @@ class SectionFormCard extends StatelessWidget {
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(NLRadii.radiusMd),
-        borderSide: BorderSide(color: c.foreground),
+        // v7d: input focus is brand cyan — the one focus color, matching
+        // buttons, rows and the sidebar's active marker.
+        borderSide: BorderSide(color: c.accentCyan),
       ),
       disabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(NLRadii.radiusMd),

@@ -105,6 +105,54 @@ void main() {
       ]);
       expect(controller.capabilities!.currentNetwork, isNull);
       expect(controller.connectSteps, isNotEmpty);
+      // v7d timeline: every recorded step carries a wall-clock stamp, one
+      // per entry, all landed before "now".
+      expect(
+        controller.connectStepTimes.length,
+        controller.connectSteps.length,
+      );
+      final now = DateTime.now();
+      for (final stamp in controller.connectStepTimes) {
+        expect(stamp.isBefore(now), isTrue);
+      }
+    },
+  );
+
+  test(
+    'v7d connectStepTimes: cleared and refilled on candidate reselect',
+    () async {
+      final source = FakeSource();
+      final device = FakeCtDevice();
+      final controller = makeController(
+        source,
+        connect: (_, __) async => device,
+      );
+      addTearDown(controller.dispose);
+      addTearDown(source.close);
+      addTearDown(device.close);
+
+      await controller.runSelfCheck();
+      await until(() => source.startCount == 1, 'selfcheck did not start scan');
+      source.emit(sampleCandidate(candidateId: 'dev-1', macSuffix: 'AAA111'));
+      source.emit(sampleCandidate(candidateId: 'dev-2', macSuffix: 'BBB222'));
+      await until(() => controller.candidates.length == 2, 'two candidates');
+
+      await controller.selectCandidate(controller.candidates.first);
+      expect(controller.phase, SessionPhase.choosingSections);
+      final firstRun = List<DateTime>.of(controller.connectStepTimes);
+      expect(firstRun, isNotEmpty);
+
+      await controller.selectCandidate(controller.candidates.last);
+      expect(controller.phase, SessionPhase.choosingSections);
+      // The second chain's stamps replace the first — series never mix.
+      expect(
+        controller.connectStepTimes.length,
+        controller.connectSteps.length,
+      );
+      expect(
+        controller.connectStepTimes.first.isAtSameMomentAs(firstRun.first),
+        isFalse,
+      );
     },
   );
 

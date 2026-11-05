@@ -9,6 +9,7 @@ import 'package:ble_universal/ble_universal.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:communication_domain/communication_domain.dart';
+import 'package:neolink_ui/neolink_ui.dart';
 import 'package:provisioning_session/provisioning_session.dart';
 
 import 'package:desktop_app/app.dart';
@@ -293,13 +294,20 @@ void main() {
       await tester.tap(find.text('下发配置'));
       await settle(tester);
 
-      // Result page: stored list + apply hint + finish back to scan loop.
+      // Result page: stored list + apply hint + next-device primary.
       expect(controller.phase, SessionPhase.completed);
       expect(find.text('已保存 1 项配置'), findsOneWidget);
       expect(find.text('Wi-Fi 联网'), findsOneWidget);
       expect(find.text('配置将在网络重连后生效'), findsOneWidget);
+      // v7d: explicit identity block + copy/export beside the primary.
+      expect(find.text('序列号'), findsOneWidget);
+      expect(find.text('NL24Q4001234'), findsOneWidget);
+      expect(find.text('完成时间'), findsOneWidget);
+      expect(find.text('配置下一台设备'), findsOneWidget);
+      expect(find.text('复制配置结果'), findsOneWidget);
+      expect(find.text('导出记录'), findsOneWidget);
 
-      await tester.tap(find.text('完成并返回扫描'));
+      await tester.tap(find.text('配置下一台设备'));
       await settle(tester);
       expect(controller.phase, SessionPhase.scanning);
       // Pump past the scan window to converge back to empty (also guarantees
@@ -460,7 +468,9 @@ void main() {
     // v6 walk: first row mid-check (spinner + checking), later rows queued.
     expect(find.byType(CircularProgressIndicator), findsOneWidget);
     expect(find.text('等待检测'), findsNWidgets(2));
-    expect(find.text('点击页面任意位置可停止自动进入'), findsOneWidget);
+    // v7d: the pause control appears only with the countdown — during the
+    // walk there is nothing to pause yet.
+    expect(find.byIcon(Icons.pause_circle_outline), findsNothing);
 
     // Walk ticks (600ms/row) land for all three channels, then the countdown
     // arms — the digit is the proof the walk finished first.
@@ -468,10 +478,12 @@ void main() {
     // Round-2 A1: big countdown digits plus the suffix hint — unmissable.
     expect(find.text('5'), findsOneWidget);
     expect(find.text('秒后自动进入扫描'), findsOneWidget);
-    // v6: the stay button is gone — any click on the page holds it instead.
+    // v6: the stay button is gone — v7d replaces click-anywhere with the
+    // explicit pause button beside the digits.
     expect(find.text('停留本页'), findsNothing);
+    expect(find.byIcon(Icons.pause_circle_outline), findsOneWidget);
 
-    await tester.tap(find.text('环境自检')); // tap-to-stay on the page body
+    await tester.tap(find.byIcon(Icons.pause_circle_outline));
     await settle(tester);
     expect(controller.selfCheckCountdown, isNull);
     expect(controller.selfCheckHeld, isTrue);
@@ -531,6 +543,14 @@ void main() {
     await tester.tap(find.text('历史会话'));
     await settle(tester);
     expect(find.textContaining('暂无记录'), findsOneWidget);
+    // v7d: the scope is part of the contract — run-scope badge, lifecycle
+    // hint, and export disabled while there is nothing to export.
+    expect(find.text('本次运行记录'), findsOneWidget);
+    expect(find.textContaining('关闭应用后清空'), findsOneWidget);
+    expect(
+      tester.widget<NLButton>(find.widgetWithText(NLButton, '导出记录')).onPressed,
+      isNull,
+    );
 
     // Pump past the whole scan window: the phase migrates scanning ->
     // scanEmpty, but the shell must keep the manual page selection.
@@ -736,6 +756,119 @@ void main() {
     expect(controller.editingSections, isEmpty);
     expect(controller.drafts, isEmpty);
     // Pump past the scan window to settle on empty; no dangling timers.
+    await tester.pump(const Duration(seconds: 21));
+    expect(controller.phase, SessionPhase.scanEmpty);
+  });
+
+  testWidgets('v7d 通道条：默认紧凑一行，查看详情展开三卡后可收起', (tester) async {
+    final source = FakeSource();
+    final device = FakeCtDevice();
+    final controller = wiredController(source, device);
+    addTearDown(source.close);
+    addTearDown(device.close);
+    addTearDown(controller.dispose);
+
+    await pumpApp(tester, controller);
+    await settle(tester); // Self-check passed -> scanning page.
+
+    // Collapsed by default: short segment text, full channel names hidden.
+    expect(find.text('查看详情'), findsOneWidget);
+    expect(find.text('BLE 可用'), findsOneWidget);
+    expect(find.text('蓝牙 BLE'), findsNothing);
+
+    await tester.tap(find.text('查看详情'));
+    await settle(tester, 2);
+    expect(find.text('收起'), findsOneWidget);
+    expect(find.text('蓝牙 BLE'), findsOneWidget);
+    expect(find.text('无线网卡（AP）'), findsOneWidget);
+    expect(find.text('CT-Disc（预留）'), findsOneWidget);
+
+    await tester.tap(find.text('收起'));
+    await settle(tester, 2);
+    expect(find.text('蓝牙 BLE'), findsNothing);
+    expect(find.text('查看详情'), findsOneWidget);
+
+    // Pump past the scan window so no timer dangles at teardown.
+    await tester.pump(const Duration(seconds: 21));
+    expect(controller.phase, SessionPhase.scanEmpty);
+  });
+
+  testWidgets('v7d 取消会话：已有输入先确认，继续编辑保留 / 放弃并退出清空', (tester) async {
+    final source = FakeSource();
+    final device = FakeCtDevice();
+    final controller = wiredController(source, device);
+    addTearDown(source.close);
+    addTearDown(device.close);
+    addTearDown(controller.dispose);
+
+    await pumpApp(tester, controller);
+    await settle(tester);
+    source.emit(sampleCandidate());
+    await settle(tester);
+    await tester.tap(find.text('连接'));
+    await settle(tester);
+    await tester.tap(find.text('Wi-Fi 联网'));
+    await settle(tester);
+    expect(controller.phase, SessionPhase.editingConfig);
+
+    // Prefilled ssid counts as content — cancel must ask first.
+    await tester.ensureVisible(find.text('取消会话'));
+    await tester.pump();
+    await tester.tap(find.text('取消会话'));
+    await settle(tester, 2);
+    expect(find.text('取消本次会话？'), findsOneWidget);
+    expect(find.text('继续编辑'), findsOneWidget);
+    expect(find.text('放弃并退出'), findsOneWidget);
+
+    // Keep editing: dialog closes, the round and drafts stay.
+    await tester.tap(find.text('继续编辑'));
+    await settle(tester, 2);
+    expect(controller.phase, SessionPhase.editingConfig);
+    expect(find.text('取消本次会话？'), findsNothing);
+    expect((controller.drafts['wifi'] as WifiSection).ssid, 'Office-2.4G');
+
+    // Discard: back to scanning with the round cleared.
+    await tester.ensureVisible(find.text('取消会话'));
+    await tester.pump();
+    await tester.tap(find.text('取消会话'));
+    await settle(tester, 2);
+    await tester.tap(find.text('放弃并退出'));
+    await settle(tester);
+    expect(controller.phase, SessionPhase.scanning);
+    expect(controller.editingSections, isEmpty);
+    expect(controller.drafts, isEmpty);
+
+    await tester.pump(const Duration(seconds: 21));
+    expect(controller.phase, SessionPhase.scanEmpty);
+  });
+
+  testWidgets('v7d 取消会话：无输入直接退出，不弹确认', (tester) async {
+    final source = FakeSource();
+    final device = FakeCtDevice();
+    final controller = wiredController(source, device);
+    addTearDown(source.close);
+    addTearDown(device.close);
+    addTearDown(controller.dispose);
+
+    await pumpApp(tester, controller);
+    await settle(tester);
+    source.emit(sampleCandidate());
+    await settle(tester);
+    await tester.tap(find.text('连接'));
+    await settle(tester);
+    await tester.tap(find.text('Wi-Fi 联网'));
+    await settle(tester);
+
+    // Clear the prefilled ssid: nothing left worth confirming about.
+    await tester.enterText(find.byType(TextField).at(0), '');
+    await tester.pump();
+    await tester.ensureVisible(find.text('取消会话'));
+    await tester.pump();
+    await tester.tap(find.text('取消会话'));
+    await settle(tester, 2);
+    expect(find.text('取消本次会话？'), findsNothing); // straight out
+    expect(controller.phase, SessionPhase.scanning);
+
     await tester.pump(const Duration(seconds: 21));
     expect(controller.phase, SessionPhase.scanEmpty);
   });

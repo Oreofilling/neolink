@@ -1,8 +1,10 @@
-// Config workspace (v7): one module at a time behind a context bar — the
-// capability list is the hub, each row opens exactly that module's form,
-// drafts survive every move, and the side rail previews the aggregate
-// payload for delivery. Hosts phases choosingSections / editingConfig /
-// delivering / operationError.
+// Config workspace (v7d workbench): one module at a time behind a context
+// bar — the capability list is the hub, each row opens exactly that
+// module's form, drafts survive every move, and the side rail previews the
+// aggregate payload for delivery. Layout: left pane scrolls on its own,
+// the right rail (device info + preview) stays visible with the deliver
+// action pinned to its bottom. Hosts phases choosingSections /
+// editingConfig / delivering / operationError.
 library;
 
 import 'dart:convert';
@@ -163,6 +165,90 @@ class _ConfigPageState extends State<ConfigPage> {
     return node ?? const {};
   }
 
+  /// True when any opened module carries operator input — the gate for the
+  /// discard confirmation on session cancel (v7d product ask #4).
+  bool get _hasUnsavedInput =>
+      controller.editingSections.any(_sectionFilledCount > 0);
+
+  /// Cancel the session: straight back to scanning when nothing was typed;
+  /// with input on the line, a confirm dialog offers keep-editing vs the
+  /// destructive discard — losing a typed Wi-Fi password to a stray click
+  /// is never okay.
+  Future<void> _confirmCancelSession() async {
+    if (!_hasUnsavedInput) {
+      controller.rescan();
+      return;
+    }
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => _cancelDialog(dialogContext),
+    );
+  }
+
+  Widget _cancelDialog(BuildContext dialogContext) {
+    final dc = dialogContext.nl;
+    final dl = AppLocalizations.of(dialogContext)!;
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      elevation: 0,
+      child: Container(
+        width: 400,
+        padding: const EdgeInsets.all(20),
+        // v7d: only overlays (dialogs, popovers) get the light shadow —
+        // this one surface floats, everything below stays flat.
+        decoration: BoxDecoration(
+          color: dc.card,
+          borderRadius: BorderRadius.circular(NLRadii.radiusLg),
+          boxShadow: NLShadows.overlay,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.warning_amber_rounded, size: 18, color: dc.warning),
+                const SizedBox(width: 8),
+                Text(
+                  dl.cfgCancelDialogTitle,
+                  style: NLType.cardTitle.copyWith(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Text(
+              dl.cfgCancelDialogBody,
+              style: NLType.body.copyWith(color: dc.mutedForeground),
+            ),
+            const SizedBox(height: 18),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                NLButton(
+                  label: dl.cfgCancelKeep,
+                  variant: NLButtonVariant.secondary,
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                ),
+                const SizedBox(width: 8),
+                NLButton(
+                  label: dl.cfgCancelDiscard,
+                  variant: NLButtonVariant.destructive,
+                  onPressed: () {
+                    Navigator.of(dialogContext).pop();
+                    controller.rescan();
+                  },
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final c = context.nl;
@@ -196,39 +282,73 @@ class _ConfigPageState extends State<ConfigPage> {
                 : _modulePane(c, l, delivering),
           ],
         );
-        final body = SingleChildScrollView(
-          padding: const EdgeInsets.all(20),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 1120),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _ctxBar(c, l),
-                const SizedBox(height: 16),
-                LayoutBuilder(
-                  builder: (context, constraints) {
-                    final right = _sidePane(c, l, delivering);
-                    // Below ~940px the side column drops under the forms
-                    // instead of squeezing them.
-                    if (constraints.maxWidth < 940) {
-                      return Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [left, const SizedBox(height: 14), right],
-                      );
-                    }
-                    return Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Expanded(child: left),
-                        const SizedBox(width: 14),
-                        SizedBox(width: 320, child: right),
-                      ],
+        // v7d workbench: the context bar spans the top; below it the form
+        // column scrolls on its own while the right rail (identity +
+        // preview + pinned deliver) stays in view — the primary action is
+        // always on screen no matter how long the form.
+        final body = Column(
+          children: [
+            _ctxBar(c, l),
+            Divider(height: 1, thickness: 1, color: c.border),
+            Expanded(
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  // Below ~940px the rail drops under the forms as plain
+                  // stacked cards (one shared scroll) instead of squeezing
+                  // both columns.
+                  if (constraints.maxWidth < 940) {
+                    return SingleChildScrollView(
+                      padding: const EdgeInsets.all(20),
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 1120),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            left,
+                            const SizedBox(height: 14),
+                            _deviceInfoCard(c, l),
+                            if (controller.editingSections.isNotEmpty) ...[
+                              const SizedBox(height: 14),
+                              _previewCard(c, l),
+                              const SizedBox(height: 14),
+                              NLCard(
+                                child: Padding(
+                                  padding: const EdgeInsets.all(14),
+                                  child: _deliverBlock(c, l, delivering),
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
                     );
-                  },
-                ),
-              ],
+                  }
+                  return Center(
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 1180),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Expanded(
+                            child: SingleChildScrollView(
+                              padding: const EdgeInsets.fromLTRB(
+                                20,
+                                16,
+                                14,
+                                20,
+                              ),
+                              child: left,
+                            ),
+                          ),
+                          SizedBox(width: 344, child: _rail(c, l, delivering)),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
             ),
-          ),
+          ],
         );
         if (phase != SessionPhase.linkLost) return body;
         // Scrim + dialog over the frozen form: the form stays visible (and
@@ -248,6 +368,41 @@ class _ConfigPageState extends State<ConfigPage> {
     );
   }
 
+  /// Sticky right rail: the scrolling part holds device identity and the
+  /// payload preview; the deliver action pins to the bottom edge so it
+  /// never scrolls out of reach.
+  Widget _rail(NLColors c, AppLocalizations l, bool delivering) {
+    final editing = controller.editingSections.isNotEmpty;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Expanded(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(6, 16, 20, 14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _deviceInfoCard(c, l),
+                if (editing) ...[
+                  const SizedBox(height: 14),
+                  _previewCard(c, l),
+                ],
+              ],
+            ),
+          ),
+        ),
+        if (editing)
+          Container(
+            padding: const EdgeInsets.fromLTRB(6, 12, 20, 16),
+            decoration: BoxDecoration(
+              border: Border(top: BorderSide(color: c.border)),
+            ),
+            child: _deliverBlock(c, l, delivering),
+          ),
+      ],
+    );
+  }
+
   /// Link-lost modal (v7c): explains the drop, keeps the drafts, offers
   /// reconnect / back to the device list. NE101 sleeps ~1 min after its
   /// config window opens, so the wake hint rides along with the body.
@@ -260,6 +415,7 @@ class _ConfigPageState extends State<ConfigPage> {
         color: c.card,
         border: Border.all(color: c.border),
         borderRadius: BorderRadius.circular(NLRadii.radiusLg),
+        boxShadow: NLShadows.overlay,
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -271,10 +427,7 @@ class _ConfigPageState extends State<ConfigPage> {
               const SizedBox(width: 8),
               Text(
                 l.linkLostTitle,
-                style: const TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w700,
-                ),
+                style: NLType.cardTitle.copyWith(fontWeight: FontWeight.w700),
               ),
             ],
           ),
@@ -283,11 +436,7 @@ class _ConfigPageState extends State<ConfigPage> {
             controller.linkLostDuringDelivery
                 ? l.linkLostDeliveringBody
                 : l.linkLostBody,
-            style: TextStyle(
-              fontSize: 12,
-              color: c.mutedForeground,
-              height: 1.55,
-            ),
+            style: NLType.aux.copyWith(color: c.mutedForeground, height: 1.55),
           ),
           const SizedBox(height: 10),
           Container(
@@ -300,15 +449,18 @@ class _ConfigPageState extends State<ConfigPage> {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(Icons.tips_and_updates_outlined, size: 14, color: c.warning),
+                Icon(
+                  Icons.tips_and_updates_outlined,
+                  size: 14,
+                  color: c.warning,
+                ),
                 const SizedBox(width: 6),
                 Expanded(
                   child: Text(
                     l.linkLostWakeHint,
-                    style: TextStyle(
+                    style: NLType.aux.copyWith(
                       fontSize: 11,
                       color: c.mutedForeground,
-                      height: 1.5,
                     ),
                   ),
                 ),
@@ -319,7 +471,7 @@ class _ConfigPageState extends State<ConfigPage> {
             const SizedBox(height: 10),
             Text(
               l.linkLostReconnectFailed,
-              style: TextStyle(fontSize: 11, color: c.error),
+              style: NLType.aux.copyWith(fontSize: 11, color: c.error),
             ),
           ],
           const SizedBox(height: 16),
@@ -352,11 +504,7 @@ class _ConfigPageState extends State<ConfigPage> {
     final serial = info?.serialNumber;
     final signal = candidate?.signal;
     return Container(
-      decoration: BoxDecoration(
-        border: Border.all(color: c.border),
-        borderRadius: BorderRadius.circular(NLRadii.radiusLg),
-      ),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
       child: Row(
         children: [
           Icon(Icons.link, size: 16, color: c.success),
@@ -371,14 +519,7 @@ class _ConfigPageState extends State<ConfigPage> {
           ),
           if (serial != null) ...[
             const SizedBox(width: 10),
-            Text(
-              serial,
-              style: TextStyle(
-                fontSize: 11,
-                fontFamily: 'JetBrains Mono',
-                color: c.mutedForeground,
-              ),
-            ),
+            Text(serial, style: NLType.mono.copyWith(color: c.mutedForeground)),
           ],
           if (signal != null) ...[
             const SizedBox(width: 10),
@@ -386,11 +527,7 @@ class _ConfigPageState extends State<ConfigPage> {
             const SizedBox(width: 5),
             Text(
               l.scanSignal(signal),
-              style: TextStyle(
-                fontSize: 11,
-                fontFamily: 'JetBrains Mono',
-                color: c.mutedForeground,
-              ),
+              style: NLType.mono.copyWith(color: c.mutedForeground),
             ),
           ],
           const SizedBox(width: 10),
@@ -400,7 +537,7 @@ class _ConfigPageState extends State<ConfigPage> {
             label: l.btnCancelSession,
             variant: NLButtonVariant.secondary,
             size: NLButtonSize.sm,
-            onPressed: controller.rescan,
+            onPressed: _confirmCancelSession,
           ),
         ],
       ),
@@ -430,10 +567,7 @@ class _ConfigPageState extends State<ConfigPage> {
       children: [
         Row(
           children: [
-            Text(
-              l.cfgSectionsTitle,
-              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
-            ),
+            Text(l.cfgSectionsTitle, style: NLType.pageTitle),
             const SizedBox(width: 10),
             NLBadge(
               label: l.capsFieldsCount(
@@ -448,9 +582,9 @@ class _ConfigPageState extends State<ConfigPage> {
         const SizedBox(height: 6),
         Text(
           l.cfgSectionsSub,
-          style: TextStyle(fontSize: 12, color: c.mutedForeground),
+          style: NLType.pageTitleSub.copyWith(color: c.mutedForeground),
         ),
-        const SizedBox(height: 10),
+        const SizedBox(height: 12),
         if (network.isNotEmpty) ...[
           _groupLabel(c, l.cfgGroupNetwork),
           for (final section in network)
@@ -476,8 +610,7 @@ class _ConfigPageState extends State<ConfigPage> {
     padding: const EdgeInsets.fromLTRB(2, 0, 0, 8),
     child: Text(
       text,
-      style: TextStyle(
-        fontSize: 11.5,
+      style: NLType.aux.copyWith(
         fontWeight: FontWeight.w600,
         letterSpacing: 0.4,
         color: c.mutedForeground,
@@ -487,7 +620,9 @@ class _ConfigPageState extends State<ConfigPage> {
 
   /// One module row: the whole card is the entry. The right side answers
   /// "what have I already filled here" — the count comes from the live
-  /// draft, so coming back mid-round shows progress at a glance.
+  /// draft, so coming back mid-round shows progress at a glance. A brand
+  /// cyan dot marks modules that already carry input (v7d: selection and
+  /// progress are cyan, status colors stay out of it).
   Widget _moduleRow(
     NLColors c,
     AppLocalizations l,
@@ -507,6 +642,22 @@ class _ConfigPageState extends State<ConfigPage> {
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
             child: Row(
               children: [
+                // Fixed-width slot so rows keep their alignment whether or
+                // not the dot is showing.
+                SizedBox(
+                  width: 8,
+                  child: Center(
+                    child: Container(
+                      width: 6,
+                      height: 6,
+                      decoration: BoxDecoration(
+                        color: filled > 0 ? c.accentCyan : Colors.transparent,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 6),
                 Icon(
                   _sectionIcon(section.name),
                   size: 16,
@@ -526,7 +677,7 @@ class _ConfigPageState extends State<ConfigPage> {
                               overflow: TextOverflow.ellipsis,
                               style: const TextStyle(
                                 fontSize: 14,
-                                fontWeight: FontWeight.w700,
+                                fontWeight: FontWeight.w600,
                               ),
                             ),
                           ),
@@ -562,11 +713,7 @@ class _ConfigPageState extends State<ConfigPage> {
                             : '${section.name} · ${section.fields.join(", ")}',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontFamily: 'JetBrains Mono',
-                          color: c.mutedForeground,
-                        ),
+                        style: NLType.mono.copyWith(color: c.mutedForeground),
                       ),
                     ],
                   ),
@@ -603,8 +750,7 @@ class _ConfigPageState extends State<ConfigPage> {
     ),
     child: Text(
       label,
-      style: TextStyle(
-        fontSize: 11,
+      style: NLType.mono.copyWith(
         fontWeight: filled ? FontWeight.w600 : null,
         color: filled ? c.foreground : c.mutedForeground,
       ),
@@ -666,7 +812,7 @@ class _ConfigPageState extends State<ConfigPage> {
                 l.cfgDraftsKept,
                 overflow: TextOverflow.ellipsis,
                 textAlign: TextAlign.right,
-                style: TextStyle(fontSize: 11.5, color: c.mutedForeground),
+                style: NLType.aux.copyWith(color: c.mutedForeground),
               ),
             ),
           ],
@@ -692,47 +838,39 @@ class _ConfigPageState extends State<ConfigPage> {
       .firstWhere((section) => section.name == name)
       .fields;
 
+  /// Rejected round (v7d banner style): light red fill + 3px left bar —
+  /// an error state, not a content card.
   Widget _rejectedBanner(NLColors c, AppLocalizations l) {
     final problem = controller.lastProblem;
-    return NLCard(
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(Icons.error_outline, size: 16, color: c.destructive),
-                const SizedBox(width: 6),
-                Text(
-                  l.formErrorTitle,
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                    color: c.destructive,
-                  ),
-                ),
-              ],
-            ),
-            if (problem != null) ...[
-              const SizedBox(height: 6),
-              Text(
-                problem.message ?? problem.reason,
-                style: TextStyle(
-                  fontSize: 11,
-                  fontFamily: 'JetBrains Mono',
-                  color: c.mutedForeground,
-                ),
-              ),
-            ],
-            const SizedBox(height: 10),
-            NLButton(
-              label: l.formBackToEdit,
-              size: NLButtonSize.sm,
-              onPressed: controller.editAgain,
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: c.errorBg,
+        borderRadius: BorderRadius.circular(NLRadii.radiusLg),
+        border: Border(left: BorderSide(color: c.error, width: 3)),
+      ),
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            l.formErrorTitle,
+            style: NLType.cardTitle.copyWith(fontSize: 13, color: c.error),
+          ),
+          if (problem != null) ...[
+            const SizedBox(height: 6),
+            Text(
+              problem.message ?? problem.reason,
+              style: NLType.mono.copyWith(color: c.mutedForeground),
             ),
           ],
-        ),
+          const SizedBox(height: 10),
+          NLButton(
+            label: l.formBackToEdit,
+            size: NLButtonSize.sm,
+            onPressed: controller.editAgain,
+          ),
+        ],
       ),
     );
   }
@@ -762,7 +900,10 @@ class _ConfigPageState extends State<ConfigPage> {
             Flexible(
               child: Text(
                 l.formHiddenHint,
-                style: TextStyle(fontSize: 11, color: c.mutedForeground),
+                style: NLType.aux.copyWith(
+                  fontSize: 11,
+                  color: c.mutedForeground,
+                ),
               ),
             ),
           ],
@@ -806,38 +947,26 @@ class _ConfigPageState extends State<ConfigPage> {
                 child: Text(
                   network.displayName,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 13),
+                  style: NLType.body,
                 ),
               ),
               const SizedBox(width: 8),
               Text(
                 l.scanSignal(network.signal),
-                style: TextStyle(
-                  fontSize: 11,
-                  fontFamily: 'JetBrains Mono',
-                  color: c.mutedForeground,
-                ),
+                style: NLType.mono.copyWith(color: c.mutedForeground),
               ),
               if (network.channel != null) ...[
                 const SizedBox(width: 8),
                 Text(
                   l.formScanChannel(network.channel!),
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontFamily: 'JetBrains Mono',
-                    color: c.mutedForeground,
-                  ),
+                  style: NLType.mono.copyWith(color: c.mutedForeground),
                 ),
               ],
               if (country is String) ...[
                 const SizedBox(width: 8),
                 Text(
                   l.formScanCountry(country),
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontFamily: 'JetBrains Mono',
-                    color: c.mutedForeground,
-                  ),
+                  style: NLType.mono.copyWith(color: c.mutedForeground),
                 ),
               ],
             ],
@@ -847,74 +976,63 @@ class _ConfigPageState extends State<ConfigPage> {
     );
   }
 
-  /// Right rail: device identity always; payload preview + deliver action
-  /// once the editing round started.
-  Widget _sidePane(NLColors c, AppLocalizations l, bool delivering) {
+  /// Device identity card (top of the rail): model / firmware / serial
+  /// badges plus the current network note.
+  Widget _deviceInfoCard(NLColors c, AppLocalizations l) {
     final info = controller.deviceInfo;
-    final editing = controller.editingSections.isNotEmpty;
     final caps = controller.capabilities;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        NLCard(
-          child: Padding(
-            padding: const EdgeInsets.all(14),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  l.cfgDeviceInfo,
-                  style: const TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
+    return NLCard(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(l.cfgDeviceInfo, style: NLType.cardTitle),
+            const SizedBox(height: 10),
+            if (info != null)
+              Wrap(
+                spacing: 8,
+                runSpacing: 6,
+                children: [
+                  NLBadge(
+                    label: l.capsDeviceModel(info.model),
+                    variant: NLBadgeVariant.info,
                   ),
-                ),
-                const SizedBox(height: 10),
-                if (info != null)
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 6,
-                    children: [
-                      NLBadge(
-                        label: l.capsDeviceModel(info.model),
-                        variant: NLBadgeVariant.info,
-                      ),
-                      NLBadge(
-                        label: l.capsDeviceFirmware(info.firmware),
-                        variant: NLBadgeVariant.muted,
-                      ),
-                      NLBadge(
-                        label: l.capsDeviceSerial(info.serialNumber),
-                        variant: NLBadgeVariant.muted,
-                      ),
-                    ],
-                  )
-                else
-                  const NLSkeleton(width: 240, height: 22),
-                if (caps != null) ...[
-                  const SizedBox(height: 10),
-                  Text(
-                    caps.currentNetwork == null
-                        ? l.capsNetworkNever
-                        : l.capsCurrentNetwork(caps.currentNetwork!),
-                    style: TextStyle(fontSize: 11, color: c.mutedForeground),
+                  NLBadge(
+                    label: l.capsDeviceFirmware(info.firmware),
+                    variant: NLBadgeVariant.muted,
+                  ),
+                  NLBadge(
+                    label: l.capsDeviceSerial(info.serialNumber),
+                    variant: NLBadgeVariant.muted,
                   ),
                 ],
-              ],
-            ),
-          ),
+              )
+            else
+              const NLSkeleton(width: 240, height: 22),
+            if (caps != null) ...[
+              const SizedBox(height: 10),
+              Text(
+                caps.currentNetwork == null
+                    ? l.capsNetworkNever
+                    : l.capsCurrentNetwork(caps.currentNetwork!),
+                style: NLType.aux.copyWith(
+                  fontSize: 11,
+                  color: c.mutedForeground,
+                ),
+              ),
+            ],
+          ],
         ),
-        if (editing) ...[
-          const SizedBox(height: 14),
-          _previewCard(c, l, delivering),
-        ],
-      ],
+      ),
     );
   }
 
   /// Payload preview with credential masking (§13 masking applies to
   /// display; the delivered payload itself stays plaintext over the link).
-  Widget _previewCard(NLColors c, AppLocalizations l, bool delivering) {
+  /// The deliver action lives outside this card — pinned in the rail footer
+  /// on wide layouts, in its own card on the narrow stack.
+  Widget _previewCard(NLColors c, AppLocalizations l) {
     final payload = controller.assembleDraftPayload();
     final body = _showPlain ? payload.payload : _maskValue(payload.payload);
     final text = const JsonEncoder.withIndent('  ').convert(body);
@@ -926,19 +1044,11 @@ class _ConfigPageState extends State<ConfigPage> {
           children: [
             Row(
               children: [
-                Expanded(
-                  child: Text(
-                    l.cfgPreview,
-                    style: const TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
+                Expanded(child: Text(l.cfgPreview, style: NLType.cardTitle)),
                 NLButton(
                   label: _showPlain ? l.btnHidePlain : l.btnShowPlain,
                   variant: NLButtonVariant.ghost,
-                  size: NLButtonSize.sm,
+                  size: NLButtonSize.xs,
                   onPressed: () => setState(() => _showPlain = !_showPlain),
                 ),
               ],
@@ -946,7 +1056,10 @@ class _ConfigPageState extends State<ConfigPage> {
             const SizedBox(height: 2),
             Text(
               l.cfgPreviewSub,
-              style: TextStyle(fontSize: 11, color: c.mutedForeground),
+              style: NLType.aux.copyWith(
+                fontSize: 11,
+                color: c.mutedForeground,
+              ),
             ),
             const SizedBox(height: 10),
             // Payload in a bordered box: raw mono text floating on the card
@@ -963,43 +1076,49 @@ class _ConfigPageState extends State<ConfigPage> {
                 child: SingleChildScrollView(
                   child: SelectableText(
                     text,
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontFamily: 'JetBrains Mono',
-                      color: c.mutedForeground,
-                    ),
+                    style: NLType.mono.copyWith(color: c.mutedForeground),
                   ),
                 ),
               ),
             ),
-            Divider(height: 1, thickness: 1, color: c.border),
-            const SizedBox(height: 12),
-            // The round is "every module you opened" — no content rule
-            // decides what ships (a service-only round is legal, §13.4), so
-            // the gate is simply: at least one module opened.
-            Text(
-              controller.editingSections.isEmpty
-                  ? l.cfgEmptyRound
-                  : l.cfgDeliverCount(controller.editingSections.length),
-              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
-            ),
-            if (controller.editingSections.isNotEmpty) ...[
-              const SizedBox(height: 4),
-              Text(
-                l.cfgDeliverAtomic,
-                style: TextStyle(fontSize: 11, color: c.mutedForeground),
-              ),
-            ],
-            const SizedBox(height: 12),
-            NLButton(
-              label: delivering ? l.formDelivering : l.formSubmit,
-              onPressed: delivering || controller.editingSections.isEmpty
-                  ? null
-                  : _submit,
-            ),
           ],
         ),
       ),
+    );
+  }
+
+  /// Round summary + the pinned primary action.
+  Widget _deliverBlock(NLColors c, AppLocalizations l, bool delivering) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // The round is "every module you opened" — no content rule decides
+        // what ships (a service-only round is legal, §13.4), so the gate is
+        // simply: at least one module opened.
+        Text(
+          controller.editingSections.isEmpty
+              ? l.cfgEmptyRound
+              : l.cfgDeliverCount(controller.editingSections.length),
+          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+        ),
+        if (controller.editingSections.isNotEmpty) ...[
+          const SizedBox(height: 4),
+          Text(
+            l.cfgDeliverAtomic,
+            style: NLType.aux.copyWith(fontSize: 11, color: c.mutedForeground),
+          ),
+        ],
+        const SizedBox(height: 12),
+        SizedBox(
+          width: double.infinity,
+          child: NLButton(
+            label: delivering ? l.formDelivering : l.formSubmit,
+            onPressed: delivering || controller.editingSections.isEmpty
+                ? null
+                : _submit,
+          ),
+        ),
+      ],
     );
   }
 

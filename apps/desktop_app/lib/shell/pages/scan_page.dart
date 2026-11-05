@@ -8,15 +8,34 @@ import '../../l10n/channel_labels.dart';
 import '../../provisioning/provisioning_controller.dart';
 import '../widgets/scan_radar.dart';
 
-/// Device scan page (v6): three channel cards up top, then a live device
-/// table. Continuous scan semantics — rows appear as devices are found and
-/// age out by TTL; the QR guide highlight marks the row the user is looking
-/// for. Busy devices stay visible but cannot be selected (§4.2.2).
-class ScanPage extends StatelessWidget {
+/// Device scan page (v6): a one-line channel status strip up top, then the
+/// live device table as the first visual focus. Continuous scan semantics —
+/// rows appear as devices are found and age out by TTL; the QR guide
+/// highlight marks the row the user is looking for. Busy devices stay
+/// visible but cannot be selected (§4.2.2).
+///
+/// v7d: the three channel cards collapsed into a compact strip (details on
+/// demand via the toggle); rows fade in, hover-highlight and hold a quiet
+/// connect action that only strengthens on hover/focus.
+class ScanPage extends StatefulWidget {
   const ScanPage({super.key, required this.controller, this.onOpenGuide});
 
   final ProvisioningController controller;
   final VoidCallback? onOpenGuide;
+
+  @override
+  State<ScanPage> createState() => _ScanPageState();
+}
+
+class _ScanPageState extends State<ScanPage> {
+  /// Channel detail cards expanded (v7d). Collapsed by default — the
+  /// device table is the page's business, the environment is a footnote.
+  bool _channelsExpanded = false;
+
+  /// Candidate whose row is under the pointer (v7d row emphasis).
+  String? _hoveredCandidateId;
+
+  ProvisioningController get controller => widget.controller;
 
   @override
   Widget build(BuildContext context) {
@@ -50,20 +69,8 @@ class ScanPage extends StatelessWidget {
                     children: [
                       Row(
                         children: [
-                          Icon(
-                            Icons.radar_outlined,
-                            size: 18,
-                            color: c.mutedForeground,
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            l.scanTitle,
-                            style: const TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                          const SizedBox(width: 10),
+                          Text(l.scanTitle, style: NLType.pageTitle),
+                          const SizedBox(width: 12),
                           if (scanning)
                             NLBadge(
                               label: l.badgeChecking,
@@ -87,14 +94,13 @@ class ScanPage extends StatelessWidget {
                       const SizedBox(height: 6),
                       Text(
                         l.scanSub,
-                        style: TextStyle(
-                          fontSize: 12,
+                        style: NLType.pageTitleSub.copyWith(
                           color: c.mutedForeground,
                         ),
                       ),
-                      const SizedBox(height: 16),
-                      _channelCards(c, l, candidates),
-                      const SizedBox(height: 16),
+                      const SizedBox(height: 14),
+                      _channelSection(c, l, candidates),
+                      const SizedBox(height: 14),
                       if (empty)
                         _emptyPanel(c, l)
                       else if (candidates.isEmpty && scanning)
@@ -147,7 +153,7 @@ class ScanPage extends StatelessWidget {
           Text(
             l.emptyHint,
             textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 12, color: c.mutedForeground),
+            style: NLType.aux.copyWith(color: c.mutedForeground),
           ),
         ],
       ),
@@ -177,21 +183,109 @@ class ScanPage extends StatelessWidget {
           const SizedBox(height: 8),
           Text(
             l.scanRadarHint,
-            style: TextStyle(fontSize: 12, color: c.mutedForeground),
+            style: NLType.aux.copyWith(color: c.mutedForeground),
           ),
         ],
       ),
     );
   }
 
-  /// One card per discovery channel: readiness + live candidate count +
-  /// the remark line from the mockup copy.
-  Widget _channelCards(
+  /// Channel environment (v7d): one compact status strip by default —
+  /// "BLE 可用 · AP 受限 · CT-Disc 不可用" at a glance; 查看详情 unfolds
+  /// the three detail cards. Readiness dot colors follow the status
+  /// palette (green/amber/red), never brand cyan.
+  Widget _channelSection(
     NLColors c,
     AppLocalizations l,
     List<DiscoveryCandidate> candidates,
   ) {
     final report = controller.environmentReport;
+    final channels = report?.channels ?? const <ChannelReadiness>[];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          decoration: BoxDecoration(
+            border: Border.all(color: c.border),
+            borderRadius: BorderRadius.circular(NLRadii.radiusLg),
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          child: Row(
+            children: [
+              Expanded(
+                child: Wrap(
+                  spacing: 12,
+                  runSpacing: 4,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    for (var i = 0; i < channels.length; i++) ...[
+                      if (i > 0)
+                        Text(
+                          '·',
+                          style: NLType.aux.copyWith(color: c.mutedForeground),
+                        ),
+                      _channelSegment(c, l, channels[i]),
+                    ],
+                  ],
+                ),
+              ),
+              NLButton(
+                label: _channelsExpanded
+                    ? l.scanChannelsLess
+                    : l.scanChannelsMore,
+                icon: _channelsExpanded ? Icons.expand_less : Icons.expand_more,
+                variant: NLButtonVariant.ghost,
+                size: NLButtonSize.xs,
+                onPressed: () =>
+                    setState(() => _channelsExpanded = !_channelsExpanded),
+              ),
+            ],
+          ),
+        ),
+        if (_channelsExpanded) ...[
+          const SizedBox(height: 10),
+          _channelCards(c, l, candidates),
+        ],
+      ],
+    );
+  }
+
+  /// One "channel state" segment of the compact strip: status dot + short
+  /// channel name + readiness word.
+  Widget _channelSegment(
+    NLColors c,
+    AppLocalizations l,
+    ChannelReadiness entry,
+  ) {
+    final color = switch (entry.capability) {
+      ChannelCapability.available => c.success,
+      ChannelCapability.limited => c.warning,
+      ChannelCapability.unavailable => c.error,
+    };
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 6,
+          height: 6,
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+        ),
+        const SizedBox(width: 6),
+        Text(
+          '${_shortChannel(l, entry.channel)} ${l.capabilityLabel(entry.capability)}',
+          style: NLType.aux.copyWith(color: c.mutedForeground),
+        ),
+      ],
+    );
+  }
+
+  /// One card per discovery channel: readiness + live candidate count +
+  /// the remark line from the mockup copy (v7d: shown only expanded).
+  Widget _channelCards(
+    NLColors c,
+    AppLocalizations l,
+    List<DiscoveryCandidate> candidates,
+  ) {
     return LayoutBuilder(
       builder: (context, constraints) {
         final columnWidth = (constraints.maxWidth - 24) / 3;
@@ -199,7 +293,9 @@ class ScanPage extends StatelessWidget {
           spacing: 12,
           runSpacing: 12,
           children: [
-            for (final entry in report?.channels ?? const <ChannelReadiness>[])
+            for (final entry
+                in controller.environmentReport?.channels ??
+                    const <ChannelReadiness>[])
               SizedBox(
                 width: columnWidth.clamp(220.0, double.infinity),
                 child: _channelCard(c, l, entry, candidates),
@@ -252,10 +348,7 @@ class ScanPage extends StatelessWidget {
                     l.channelLabel(entry.channel),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                    ),
+                    style: NLType.cardTitle,
                   ),
                 ),
                 NLBadge(label: l.chCount(count), variant: NLBadgeVariant.muted),
@@ -270,10 +363,7 @@ class ScanPage extends StatelessWidget {
               dot: entry.capability == ChannelCapability.available,
             ),
             const SizedBox(height: 8),
-            Text(
-              remark,
-              style: TextStyle(fontSize: 11, color: c.mutedForeground),
-            ),
+            Text(remark, style: NLType.aux.copyWith(color: c.mutedForeground)),
           ],
         ),
       ),
@@ -286,6 +376,7 @@ class ScanPage extends StatelessWidget {
     List<DiscoveryCandidate> candidates,
   ) {
     return NLCard(
+      padding: EdgeInsets.zero,
       child: Column(
         children: [
           // Header row.
@@ -303,7 +394,13 @@ class ScanPage extends StatelessWidget {
             ),
           ),
           Divider(height: 1, thickness: 1, color: c.border),
-          for (final candidate in candidates) _deviceRow(c, l, candidate),
+          for (final candidate in candidates)
+            _deviceRow(
+              c,
+              l,
+              candidate,
+              hovered: _hoveredCandidateId == candidate.candidateId,
+            ),
         ],
       ),
     );
@@ -311,14 +408,23 @@ class ScanPage extends StatelessWidget {
 
   Widget _headText(NLColors c, String text) => Text(
     text,
-    style: TextStyle(
-      fontSize: 11,
+    style: NLType.aux.copyWith(
       fontWeight: FontWeight.w600,
       color: c.mutedForeground,
     ),
   );
 
-  Widget _deviceRow(NLColors c, AppLocalizations l, DiscoveryCandidate device) {
+  /// One device row (v7d): fade+slide in on arrival, hover surface, QR
+  /// focus painted as a cyan left bar over a light cyan fill (was: ring
+  /// border), and the connect action staying quiet until the row is
+  /// hovered — a full column of primary buttons is noise, one strengthened
+  /// button under the pointer is a target.
+  Widget _deviceRow(
+    NLColors c,
+    AppLocalizations l,
+    DiscoveryCandidate device, {
+    required bool hovered,
+  }) {
     final selectable = device.provisionable && !device.busy;
     final age = DateTime.now().difference(device.lastSeen);
     final stale = age > controller.ttl;
@@ -326,187 +432,211 @@ class ScanPage extends StatelessWidget {
         device.macSuffix != null &&
         device.macSuffix == controller.qrFocusSuffix;
     final signal = device.signal;
-    return Opacity(
-      opacity: stale ? 0.62 : 1,
-      child: Column(
-        children: [
-          Container(
-            decoration: focused
-                ? BoxDecoration(
-                    border: Border.all(color: c.ring),
-                    borderRadius: BorderRadius.circular(NLRadii.radiusMd),
-                  )
-                : null,
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            child: Row(
-              children: [
-                Expanded(
-                  flex: 3,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+    return TweenAnimationBuilder<double>(
+      key: ValueKey('row-${device.candidateId}'),
+      tween: Tween(begin: 0, end: 1),
+      duration: const Duration(milliseconds: 200),
+      builder: (context, t, child) => Opacity(
+        opacity: t,
+        child: Transform.translate(
+          offset: Offset(0, 4 * (1 - t)),
+          child: child,
+        ),
+      ),
+      child: MouseRegion(
+        onEnter: (_) =>
+            setState(() => _hoveredCandidateId = device.candidateId),
+        onExit: (_) => setState(() => _hoveredCandidateId = null),
+        child: Column(
+          children: [
+            AnimatedContainer(
+              duration: NLDurations.fast,
+              decoration: BoxDecoration(
+                color: focused
+                    ? c.accentCyanBg
+                    : hovered
+                    ? c.hoverBg
+                    : Colors.transparent,
+                // A transparent 3px left border on every row keeps the
+                // column aligned when the focused row shows its cyan bar.
+                border: Border(
+                  left: BorderSide(
+                    color: focused ? c.accentCyan : Colors.transparent,
+                    width: 3,
+                  ),
+                ),
+              ),
+              child: Opacity(
+                opacity: stale ? 0.62 : 1,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 10,
+                  ),
+                  child: Row(
                     children: [
-                      Row(
-                        children: [
-                          Flexible(
-                            child: Text(
-                              device.modelHint ?? l.scanUnknownModel,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w700,
+                      Expanded(
+                        flex: 3,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Flexible(
+                                  child: Text(
+                                    device.modelHint ?? l.scanUnknownModel,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ),
+                                if (focused) ...[
+                                  const SizedBox(width: 6),
+                                  NLBadge(
+                                    label: l.qrLocated,
+                                    variant: NLBadgeVariant.info,
+                                  ),
+                                ],
+                              ],
+                            ),
+                            if (device.macSuffix != null) ...[
+                              const SizedBox(height: 2),
+                              Text(
+                                device.macSuffix!,
+                                style: NLType.mono.copyWith(
+                                  color: c.mutedForeground,
+                                ),
                               ),
-                            ),
-                          ),
-                          if (focused) ...[
-                            const SizedBox(width: 6),
-                            NLBadge(
-                              label: l.qrLocated,
-                              variant: NLBadgeVariant.info,
-                            ),
+                            ],
                           ],
-                        ],
+                        ),
                       ),
-                      if (device.macSuffix != null) ...[
-                        const SizedBox(height: 2),
-                        Text(
-                          device.macSuffix!,
-                          style: TextStyle(
-                            fontSize: 10,
-                            fontFamily: 'JetBrains Mono',
-                            color: c.mutedForeground,
+                      SizedBox(
+                        width: 92,
+                        child: Wrap(
+                          spacing: 4,
+                          runSpacing: 4,
+                          children: [
+                            for (final channel in device.channels)
+                              Text(
+                                _shortChannel(l, channel),
+                                style: NLType.mono.copyWith(
+                                  color: c.mutedForeground,
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                      SizedBox(
+                        width: 120,
+                        child: signal == null
+                            ? Text(
+                                '—',
+                                style: NLType.aux.copyWith(
+                                  color: c.mutedForeground,
+                                ),
+                              )
+                            : Row(
+                                children: [
+                                  SignalBars(signal: signal),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    l.scanSignal(signal),
+                                    style: NLType.mono.copyWith(
+                                      color: c.mutedForeground,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                      ),
+                      SizedBox(
+                        width: 110,
+                        child: stale
+                            ? NLBadge(
+                                label: l.scanStale,
+                                variant: NLBadgeVariant.warning,
+                              )
+                            : device.busy
+                            ? NLBadge(
+                                label: l.scanBusy,
+                                variant: NLBadgeVariant.error,
+                              )
+                            : !device.provisionable
+                            ? NLBadge(
+                                label: l.scanNotProvisionable,
+                                variant: NLBadgeVariant.warning,
+                              )
+                            // v6: a healthy connectable row gets a positive
+                            // mark too — but quiet: bare dot + muted text,
+                            // no chip background (exception states keep the
+                            // loud badges).
+                            : Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Container(
+                                    width: 6,
+                                    height: 6,
+                                    decoration: BoxDecoration(
+                                      color: c.success,
+                                      shape: BoxShape.circle,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 5),
+                                  Text(
+                                    l.scanIdle,
+                                    style: NLType.aux.copyWith(
+                                      fontWeight: FontWeight.w600,
+                                      color: c.mutedForeground,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                      ),
+                      Expanded(
+                        flex: 2,
+                        child: age.inSeconds >= 3
+                            ? Text(
+                                l.scanLastSeen(age.inSeconds),
+                                style: NLType.mono.copyWith(
+                                  color: c.mutedForeground,
+                                ),
+                              )
+                            // v6: sub-3s rows say "just now" instead of
+                            // sitting blank while the age counter warms up.
+                            : Text(
+                                l.scanJustNow,
+                                style: NLType.mono.copyWith(
+                                  color: c.mutedForeground,
+                                ),
+                              ),
+                      ),
+                      SizedBox(
+                        width: 84,
+                        child: Align(
+                          alignment: Alignment.centerRight,
+                          child: NLButton(
+                            label: l.scanSelect,
+                            size: NLButtonSize.sm,
+                            variant: hovered
+                                ? NLButtonVariant.primary
+                                : NLButtonVariant.secondary,
+                            onPressed: selectable
+                                ? () => controller.selectCandidate(device)
+                                : null,
                           ),
                         ),
-                      ],
+                      ),
                     ],
                   ),
                 ),
-                SizedBox(
-                  width: 92,
-                  child: Wrap(
-                    spacing: 4,
-                    runSpacing: 4,
-                    children: [
-                      for (final channel in device.channels)
-                        Text(
-                          _shortChannel(l, channel),
-                          style: TextStyle(
-                            fontSize: 10,
-                            fontFamily: 'JetBrains Mono',
-                            color: c.mutedForeground,
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-                SizedBox(
-                  width: 120,
-                  child: signal == null
-                      ? Text(
-                          '—',
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: c.mutedForeground,
-                          ),
-                        )
-                      : Row(
-                          children: [
-                            SignalBars(signal: signal),
-                            const SizedBox(width: 8),
-                            Text(
-                              l.scanSignal(signal),
-                              style: TextStyle(
-                                fontSize: 11,
-                                fontFamily: 'JetBrains Mono',
-                                color: c.mutedForeground,
-                              ),
-                            ),
-                          ],
-                        ),
-                ),
-                SizedBox(
-                  width: 110,
-                  child: stale
-                      ? NLBadge(
-                          label: l.scanStale,
-                          variant: NLBadgeVariant.warning,
-                        )
-                      : device.busy
-                      ? NLBadge(
-                          label: l.scanBusy,
-                          variant: NLBadgeVariant.error,
-                        )
-                      : !device.provisionable
-                      ? NLBadge(
-                          label: l.scanNotProvisionable,
-                          variant: NLBadgeVariant.warning,
-                        )
-                      // v6: a healthy connectable row gets a positive mark
-                      // too — but quiet: bare dot + muted text, no chip
-                      // background (exception states keep the loud badges).
-                      : Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Container(
-                              width: 6,
-                              height: 6,
-                              decoration: BoxDecoration(
-                                color: c.success,
-                                shape: BoxShape.circle,
-                              ),
-                            ),
-                            const SizedBox(width: 5),
-                            Text(
-                              l.scanIdle,
-                              style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w600,
-                                color: c.mutedForeground,
-                              ),
-                            ),
-                          ],
-                        ),
-                ),
-                Expanded(
-                  flex: 2,
-                  child: age.inSeconds >= 3
-                      ? Text(
-                          l.scanLastSeen(age.inSeconds),
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontFamily: 'JetBrains Mono',
-                            color: c.mutedForeground,
-                          ),
-                        )
-                      // v6: sub-3s rows say "just now" instead of sitting
-                      // blank while the age counter warms up.
-                      : Text(
-                          l.scanJustNow,
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontFamily: 'JetBrains Mono',
-                            color: c.mutedForeground,
-                          ),
-                        ),
-                ),
-                SizedBox(
-                  width: 84,
-                  child: Align(
-                    alignment: Alignment.centerRight,
-                    child: NLButton(
-                      label: l.scanSelect,
-                      size: NLButtonSize.sm,
-                      onPressed: selectable
-                          ? () => controller.selectCandidate(device)
-                          : null,
-                    ),
-                  ),
-                ),
-              ],
+              ),
             ),
-          ),
-          Divider(height: 1, thickness: 1, color: c.border),
-        ],
+            Divider(height: 1, thickness: 1, color: c.border),
+          ],
+        ),
       ),
     );
   }
@@ -532,14 +662,14 @@ class ScanPage extends StatelessWidget {
           Expanded(
             child: Text(
               l.noHit,
-              style: TextStyle(fontSize: 12, color: c.mutedForeground),
+              style: NLType.body.copyWith(color: c.mutedForeground),
             ),
           ),
           NLButton(
             label: l.btnQrAddShort,
             variant: NLButtonVariant.ghost,
             size: NLButtonSize.sm,
-            onPressed: onOpenGuide,
+            onPressed: widget.onOpenGuide,
           ),
         ],
       ),

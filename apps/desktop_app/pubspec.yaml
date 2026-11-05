@@ -1,7 +1,7 @@
 name: desktop_app
 description: NeoLink Windows 桌面端（P0 首发参考实现入口）
 publish_to: none
-version: 0.1.0
+version: 0.2.0
 environment:
   sdk: ^3.5.0
 dependencies:

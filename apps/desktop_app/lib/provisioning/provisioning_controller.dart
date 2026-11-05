@@ -139,6 +139,11 @@ class ProvisioningController extends ChangeNotifier {
   /// 连接序列的分步进度（骨架屏进度行，最新在末尾）。
   final List<String> connectSteps = <String>[];
 
+  /// Wall-clock stamp per [connectSteps] entry (v7d timeline: per-step
+  /// elapsed shown beside each row — the diagnostic feel the connect page
+  /// now goes for). Cleared alongside connectSteps.
+  final List<DateTime> connectStepTimes = <DateTime>[];
+
   DiscoveryCandidate? selectedCandidate;
   DeviceInfoResult? deviceInfo;
   CapabilitiesResult? capabilities;
@@ -311,6 +316,7 @@ class ProvisioningController extends ChangeNotifier {
     deviceInfo = null;
     capabilities = null;
     connectSteps.clear();
+    connectStepTimes.clear();
     notifyListeners();
     await _machine.selectCandidate();
     await _connectChain(candidate);
@@ -320,6 +326,7 @@ class ProvisioningController extends ChangeNotifier {
     final deviceId = candidate.candidateId;
     void onStep(String step) {
       connectSteps.add(step);
+      connectStepTimes.add(DateTime.now());
       notifyListeners();
     }
 
