@@ -8,8 +8,11 @@ library;
 
 import 'dart:async';
 
+import 'package:ap_discovery_adapter/ap_discovery_adapter.dart';
 import 'package:ble_universal/ble_universal.dart';
 import 'package:communication_domain/communication_domain.dart';
+import 'package:ct_disc_adapter/ct_disc_adapter.dart';
+import 'package:discovery_domain/discovery_domain.dart';
 import 'package:flutter/foundation.dart';
 // 能力侧的 ConfigSection 与 communication_domain 节类型重名：控制器
 // 语境里 ConfigSection 一律指节草稿，能力节只经 capabilities.sections 迭代。
@@ -36,7 +39,16 @@ class ProvisioningController extends ChangeNotifier {
     this.selfCheckHold = const Duration(seconds: 5),
     this.sweepInterval = const Duration(seconds: 3),
   }) : _probe = environmentProbe ?? DesktopEnvironmentProbe(),
-       _source = discoverySource ?? BleDiscoverySource(),
+       // M5 default: the production app scans all three channels at once
+       // (BLE first — the fast path users watch); tests inject their own
+       // source and never touch this wiring.
+       _source =
+           discoverySource ??
+           CompositeDiscoverySource([
+             BleDiscoverySource(),
+             ApDiscoverySource(),
+             CtDiscDiscoverySource(),
+           ]),
        _pair =
            establishPairing ?? ((deviceId) => establishSystemBond(deviceId)),
        _connect =
@@ -82,6 +94,11 @@ class ProvisioningController extends ChangeNotifier {
   late final StreamSubscription<SessionProblem> _problemSub;
 
   DiscoveryRegistry _registry = DiscoveryRegistry();
+  // BLE platform device id per merge key (macSuffix). The registry keeps
+  // the FIRST-seen candidateId across channels — when an AP sighting lands
+  // before BLE, the merged row would otherwise carry the AP id into the
+  // GATT chain. Cross-channel handles stay session-side (domain note).
+  final Map<String, String> _bleDeviceIds = {};
   StreamSubscription<DiscoveryCandidate>? _candidateSub;
   Timer? _scanTimer;
   Timer? _sweepTimer;
@@ -160,6 +177,32 @@ class ProvisioningController extends ChangeNotifier {
 
   SessionPhase get phase => _machine.phase;
   List<DiscoveryCandidate> get candidates => _registry.snapshot;
+
+  /// Same merge key the registry uses (macSuffix, else candidateId), so the
+  /// BLE id lookup and the registry row always agree on identity.
+  static String _mergeKeyOf(DiscoveryCandidate candidate) =>
+      (candidate.macSuffix ?? candidate.candidateId).toUpperCase();
+
+  /// NICs the CT-Disc listener joined (interface + subnet, §13.1: the user
+  /// can see which sending interfaces are in play with VPN/virtual NICs
+  /// around). Empty before the scan starts or with an injected source.
+  List<String> get ctDiscNicLabels {
+    DiscoverySource? source = _source;
+    if (source is! CtDiscDiscoverySource &&
+        source is CompositeDiscoverySource) {
+      for (final child in source.sources) {
+        if (child is CtDiscDiscoverySource) {
+          source = child;
+          break;
+        }
+      }
+    }
+    if (source is! CtDiscDiscoverySource) return const <String>[];
+    return [
+      for (final nic in source.joinedNics)
+        if (nic.nicClass == NicClass.physical) nic.label,
+    ];
+  }
 
   /// Machine phase -> flow page id (the shell switches its workspace on
   /// this; v6 interaction: scan/results share one page, capabilities and
@@ -323,12 +366,26 @@ class ProvisioningController extends ChangeNotifier {
   }
 
   Future<void> _connectChain(DiscoveryCandidate candidate) async {
-    final deviceId = candidate.candidateId;
     void onStep(String step) {
       connectSteps.add(step);
       connectStepTimes.add(DateTime.now());
       notifyListeners();
     }
+
+    // Channel guard: only the BLE channel has a connect chain today. An
+    // AP/CT-Disc-only row must fail with a stable reason instead of a
+    // misleading GATT attempt (the softAP chain lands in its own round).
+    if (!candidate.channels.contains(DiscoveryChannel.ble)) {
+      if (_machine.phase == SessionPhase.connecting) {
+        await _machine.failConnection('channel_unsupported', null);
+        notifyListeners();
+      }
+      return;
+    }
+    // Merged rows keep the first-seen candidateId (possibly an AP id); the
+    // GATT chain needs the platform device id from the BLE sighting.
+    final deviceId =
+        _bleDeviceIds[_mergeKeyOf(candidate)] ?? candidate.candidateId;
 
     // 第一段：系统配对 + GATT 通道 → 失败按连接错误处理。
     CtGattChannel channel;
@@ -906,9 +963,13 @@ class ProvisioningController extends ChangeNotifier {
   void _startScan() {
     _stopScanTasks();
     _registry = DiscoveryRegistry();
+    _bleDeviceIds.clear();
     _qrFocusSuffix = null;
     _candidateSub = _source.candidates.listen((candidate) {
       _registry.absorb(candidate);
+      if (candidate.channels.contains(DiscoveryChannel.ble)) {
+        _bleDeviceIds[_mergeKeyOf(candidate)] = candidate.candidateId;
+      }
       if (_machine.phase == SessionPhase.scanning) {
         _machine.reportCandidate();
       }

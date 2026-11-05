@@ -137,6 +137,32 @@ void main() {
     expect(controller.phase, SessionPhase.scanEmpty);
   });
 
+  testWidgets('AP-only候选显示通道与暂不支持连接（M5）', (tester) async {
+    final source = FakeSource();
+    final device = FakeCtDevice();
+    final controller = wiredController(source, device);
+    addTearDown(source.close);
+    addTearDown(device.close);
+    addTearDown(controller.dispose);
+
+    await pumpApp(tester, controller);
+    await settle(tester);
+
+    source.emit(
+      sampleCandidate(
+        candidateId: 'ap:CT-AP-BBC6DC',
+        modelHint: 'NE101-P',
+      ).copyWith(channels: const {DiscoveryChannel.accessPoint}),
+    );
+    await settle(tester);
+    expect(controller.phase, SessionPhase.resultsAvailable);
+    // Row present with the AP channel chip, but no connect offer.
+    expect(find.text('NE101-P'), findsOneWidget);
+    expect(find.text('AP'), findsWidgets);
+    expect(find.text('暂不支持连接'), findsOneWidget);
+    expect(find.text('连接'), findsNothing);
+  });
+
   testWidgets('连接失败：错误卡展示原因并可返回设备列表', (tester) async {
     final source = FakeSource();
     final controller = ProvisioningController(

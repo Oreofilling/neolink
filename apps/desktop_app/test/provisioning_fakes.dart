@@ -3,8 +3,10 @@
 library;
 
 import 'dart:async';
+import 'dart:io';
 
 import 'package:ble_universal/ble_universal.dart';
+import 'package:ct_disc_adapter/ct_disc_adapter.dart';
 import 'package:ct_prov_core/ct_prov_core.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -387,7 +389,8 @@ final class GatedFakeCtDevice extends FakeCtDevice {
   }
 }
 
-/// 全通道可用的探测替身（蓝牙就绪 + 一块启用的无线网卡）。
+/// 全通道可用的探测替身（蓝牙就绪 + 一块启用的无线网卡 + 一块物理
+/// 以太网卡供 CT-Disc 组播加入）。
 DesktopEnvironmentProbe readyProbe() => DesktopEnvironmentProbe(
   probeBle: () async => const CtEnvironmentReport(
     readiness: CtBleReadiness.ready,
@@ -395,15 +398,23 @@ DesktopEnvironmentProbe readyProbe() => DesktopEnvironmentProbe(
   ),
   enumerateAdapters: () async =>
       '[{"Name":"Wi-Fi","Status":"Up","PhysicalMediaType":"Native 802.11"}]',
+  nicEnumerator: ({bool includeVirtual = false}) async => [
+    NicEndpoint(
+      interfaceName: 'Ethernet',
+      address: InternetAddress('192.168.93.20'),
+      nicClass: NicClass.physical,
+    ),
+  ],
 );
 
-/// 全通道不可用的探测替身（蓝牙关 + 网卡枚举失败）。
+/// 全通道不可用的探测替身（蓝牙关 + 网卡枚举失败 + NIC 枚举失败）。
 DesktopEnvironmentProbe blockedProbe() => DesktopEnvironmentProbe(
   probeBle: () async => const CtEnvironmentReport(
     readiness: CtBleReadiness.poweredOff,
     detail: 'fake off',
   ),
   enumerateAdapters: () async => null,
+  nicEnumerator: ({bool includeVirtual = false}) async => throw 'probe failed',
 );
 
 /// 造一条可配置、空闲的候选（[seen] 回溯 lastSeen，供时效标注用例）。

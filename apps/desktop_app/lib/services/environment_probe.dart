@@ -1,8 +1,10 @@
-/// 桌面端环境探测（M2-3）：BLE 射频 + WLAN 网卡（AP 通道）+ CT-Disc
-/// 预留，汇总为 [EnvironmentCheckReport]。
+/// 桌面端环境探测（M2-3 起，M5 升级 CT-Disc 腿）：BLE 射频 + WLAN 网卡
+/// （AP 通道）+ IPv4 网卡枚举（CT-Disc 通道），汇总为
+/// [EnvironmentCheckReport]。
 ///
 /// 网卡枚举用 PowerShell Get-NetAdapter（对象输出，随系统语言无关；
-/// netsh 文本输出会随 locale 变化，不采用）。探测失败按该通道
+/// netsh 文本输出会随 locale 变化，不采用）；CT-Disc 腿走 dart:io 的
+/// 网卡枚举（跨平台、无需 PowerShell）。探测失败按该通道
 /// unavailable 处理并携带原因，不阻塞其余通道。
 library;
 
@@ -10,6 +12,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:ble_universal/ble_universal.dart';
+import 'package:ct_disc_adapter/ct_disc_adapter.dart';
+import 'package:discovery_domain/discovery_domain.dart';
 
 /// 无线网卡在 Get-NetAdapter 里的 PhysicalMediaType 取值。
 const String kWlanMediaType = 'Native 802.11';
@@ -92,24 +96,56 @@ ChannelReadiness apChannelReadiness(List<NetAdapterInfo>? adapters) {
   );
 }
 
-/// CT-Disc 本版未接入：按预留通道降级标注，不参与可用性判定。
-const ChannelReadiness kCtDiscReserved = ChannelReadiness(
-  channel: DiscoveryChannel.ctDisc,
-  capability: ChannelCapability.limited,
-  reason: 'reserved',
-);
+/// CT-Disc 通道结论（M5：从预留常量升级为真实网卡枚举）：有物理网卡
+/// 即可用（加入组播监听）；只有 VPN/虚拟网卡为受限（NIC 选择器可显式
+/// 勾选）；枚举失败或无任何 IPv4 端点为不可用。
+ChannelReadiness ctDiscChannelReadiness(List<NicEndpoint>? endpoints) {
+  if (endpoints == null) {
+    return const ChannelReadiness(
+      channel: DiscoveryChannel.ctDisc,
+      capability: ChannelCapability.unavailable,
+      reason: 'nic_probe_failed',
+    );
+  }
+  if (endpoints.isEmpty) {
+    return const ChannelReadiness(
+      channel: DiscoveryChannel.ctDisc,
+      capability: ChannelCapability.unavailable,
+      reason: 'no_nic',
+    );
+  }
+  final physical = endpoints.where(
+    (endpoint) => endpoint.nicClass == NicClass.physical,
+  );
+  if (physical.isEmpty) {
+    return const ChannelReadiness(
+      channel: DiscoveryChannel.ctDisc,
+      capability: ChannelCapability.limited,
+      reason: 'only_virtual_nics',
+    );
+  }
+  return const ChannelReadiness(
+    channel: DiscoveryChannel.ctDisc,
+    capability: ChannelCapability.available,
+    reason: 'ready',
+  );
+}
 
 /// 桌面端环境探测：BLE 与网卡枚举并行执行，失败互不牵连。
 class DesktopEnvironmentProbe {
   DesktopEnvironmentProbe({
     Future<CtEnvironmentReport> Function()? probeBle,
     Future<String?> Function()? enumerateAdapters,
+    Future<List<NicEndpoint>> Function({bool includeVirtual})? nicEnumerator,
     this.legTimeout = const Duration(seconds: 10),
   }) : _probeBle = probeBle ?? UniversalCtEnvironment.probe,
-       _enumerateAdapters = enumerateAdapters ?? _queryAdaptersViaPowerShell;
+       _enumerateAdapters = enumerateAdapters ?? _queryAdaptersViaPowerShell,
+       _nicEnumerator = nicEnumerator ?? enumerateNicEndpoints;
 
   final Future<CtEnvironmentReport> Function() _probeBle;
   final Future<String?> Function() _enumerateAdapters;
+  final Future<List<NicEndpoint>> Function({bool includeVirtual})
+  _nicEnumerator;
 
   /// Per-leg cap. A hung WinRT radio query (or a stuck PowerShell child)
   /// must resolve as a degraded report instead of wedging the caller —
@@ -124,16 +160,18 @@ class DesktopEnvironmentProbe {
     final results = await Future.wait([
       _guardedBleProbe().timeout(legTimeout, onTimeout: _bleTimedOut),
       _guardedAdapters().timeout(legTimeout, onTimeout: () => null),
+      _guardedNics().timeout(legTimeout, onTimeout: () => null),
     ]);
     final bleReport = results[0] as CtEnvironmentReport;
     final adapterJson = results[1] as String?;
+    final nics = results[2] as List<NicEndpoint>?;
     return EnvironmentCheckReport(
       channels: [
         bleChannelReadiness(bleReport),
         apChannelReadiness(
           adapterJson == null ? null : parseNetAdapters(adapterJson),
         ),
-        kCtDiscReserved,
+        ctDiscChannelReadiness(nics),
       ],
     );
   }
@@ -157,6 +195,14 @@ class DesktopEnvironmentProbe {
   Future<String?> _guardedAdapters() async {
     try {
       return await _enumerateAdapters();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<List<NicEndpoint>?> _guardedNics() async {
+    try {
+      return await _nicEnumerator(includeVirtual: true);
     } catch (_) {
       return null;
     }

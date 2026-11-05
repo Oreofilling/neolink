@@ -36,6 +36,10 @@ dependencies:
     path: ../../packages/ble_universal
   discovery_domain:
     path: ../../packages/discovery_domain
+  ap_discovery_adapter:
+    path: ../../packages/ap_discovery_adapter
+  ct_disc_adapter:
+    path: ../../packages/ct_disc_adapter
   provisioning_session:
     path: ../../packages/provisioning_session
   communication_domain:

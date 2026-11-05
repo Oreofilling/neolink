@@ -1074,4 +1074,114 @@ void main() {
       },
     );
   });
+
+  group('M5 three-channel scan', () {
+    test(
+      'AP/CT-Disc-only candidates stay visible but do not enter GATT',
+      () async {
+        final source = FakeSource();
+        var connectCalls = 0;
+        final controller = ProvisioningController(
+          environmentProbe: readyProbe(),
+          discoverySource: source,
+          establishPairing: (_) async {},
+          connectChannel: (_, __) async {
+            connectCalls++;
+            return FakeCtDevice();
+          },
+          linkEvents: (_) => const Stream<bool>.empty(),
+          selfCheckHold: Duration.zero,
+        );
+        addTearDown(controller.dispose);
+        addTearDown(source.close);
+
+        await controller.runSelfCheck();
+        await until(
+          () => source.startCount == 1,
+          'selfcheck did not start scan',
+        );
+        // Same device seen through the AP channel only: display candidate.
+        source.emit(
+          sampleCandidate(
+            candidateId: 'ap:CT-AP-BBC6DC',
+            modelHint: 'NE101-P',
+          ).copyWith(channels: const {DiscoveryChannel.accessPoint}),
+        );
+        await until(
+          () => controller.candidates.isNotEmpty,
+          'AP candidate never arrived',
+        );
+        expect(controller.phase, SessionPhase.resultsAvailable);
+
+        await controller.selectCandidate(controller.candidates.single);
+        await until(
+          () => controller.phase == SessionPhase.connectionError,
+          'guard did not fail the connect chain',
+        );
+        expect(controller.lastProblem?.reason, 'channel_unsupported');
+        expect(connectCalls, 0);
+
+        // The row is still there after the failure (back to the list).
+        controller.switchCandidate();
+        expect(controller.phase, SessionPhase.resultsAvailable);
+        expect(controller.candidates.single.macSuffix, isNotNull);
+      },
+    );
+
+    test('merged BLE+AP candidate connects over the BLE chain', () async {
+      final source = FakeSource();
+      final device = FakeCtDevice();
+      final connectIds = <String>[];
+      final controller = ProvisioningController(
+        environmentProbe: readyProbe(),
+        discoverySource: source,
+        establishPairing: (_) async {},
+        connectChannel: (deviceId, _) async {
+          connectIds.add(deviceId);
+          return device;
+        },
+        linkEvents: (_) => const Stream<bool>.empty(),
+        selfCheckHold: Duration.zero,
+      );
+      addTearDown(controller.dispose);
+      addTearDown(source.close);
+      addTearDown(device.close);
+
+      await controller.runSelfCheck();
+      await until(() => source.startCount == 1, 'selfcheck did not start scan');
+      // Cross-channel merge: the AP sighting arrives first, then BLE — the
+      // registry keeps one row carrying both channels; the merged row's id
+      // is the AP one, but the GATT chain must receive the BLE platform id.
+      source.emit(
+        sampleCandidate(
+          candidateId: 'ap:CT-AP-A1B2C3',
+          modelHint: 'NE101-P',
+        ).copyWith(channels: const {DiscoveryChannel.accessPoint}),
+      );
+      source.emit(
+        sampleCandidate(candidateId: 'ble-1').copyWith(
+          channels: const {DiscoveryChannel.ble, DiscoveryChannel.accessPoint},
+        ),
+      );
+      await until(
+        () => controller.candidates.isNotEmpty,
+        'candidates never arrived',
+      );
+      expect(controller.candidates.single.candidateId, 'ap:CT-AP-A1B2C3');
+      expect(
+        controller.candidates.single.channels,
+        containsAll(<DiscoveryChannel>{
+          DiscoveryChannel.ble,
+          DiscoveryChannel.accessPoint,
+        }),
+      );
+
+      await controller.selectCandidate(controller.candidates.single);
+      await until(
+        () => controller.phase == SessionPhase.choosingSections,
+        'merged candidate did not connect',
+      );
+      expect(connectIds, ['ble-1']);
+    });
+  });
 }

@@ -1,4 +1,5 @@
 import 'app_localizations.dart';
+
 import 'package:discovery_domain/discovery_domain.dart';
 
 /// 通道 / 通道能力 / 自检原因 的本地化查表（稳定标识 → ARB 文案）。
@@ -26,6 +27,9 @@ extension ChannelL10n on AppLocalizations {
     'wlan_disabled' => reasonWlanDisabled,
     'adapter_probe_failed' => reasonAdapterProbeFailed,
     'reserved' => reasonReserved,
+    'no_nic' => reasonNoNic,
+    'only_virtual_nics' => reasonOnlyVirtualNics,
+    'nic_probe_failed' => reasonAdapterProbeFailed,
     _ => reason,
   };
 }

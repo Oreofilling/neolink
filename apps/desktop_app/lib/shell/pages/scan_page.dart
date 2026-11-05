@@ -364,6 +364,24 @@ class _ScanPageState extends State<ScanPage> {
             ),
             const SizedBox(height: 8),
             Text(remark, style: NLType.aux.copyWith(color: c.mutedForeground)),
+            // §13.1: with several NICs / VPN / virtual adapters around, the
+            // user can see which interfaces (and subnets) the listener
+            // joined. Hidden while empty (before the scan starts).
+            if (entry.channel == DiscoveryChannel.ctDisc &&
+                controller.ctDiscNicLabels.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 6,
+                runSpacing: 4,
+                children: [
+                  for (final label in controller.ctDiscNicLabels)
+                    Text(
+                      label,
+                      style: NLType.mono.copyWith(color: c.mutedForeground),
+                    ),
+                ],
+              ),
+            ],
           ],
         ),
       ),
@@ -426,6 +444,10 @@ class _ScanPageState extends State<ScanPage> {
     required bool hovered,
   }) {
     final selectable = device.provisionable && !device.busy;
+    // M5: AP/CT-Disc-only rows are display candidates for now — the softAP
+    // connect chain lands in its own round, so the row says so instead of
+    // offering a connect that could only fail.
+    final bleConnectable = device.channels.contains(DiscoveryChannel.ble);
     final age = DateTime.now().difference(device.lastSeen);
     final stale = age > controller.ttl;
     final focused =
@@ -617,16 +639,23 @@ class _ScanPageState extends State<ScanPage> {
                         width: 84,
                         child: Align(
                           alignment: Alignment.centerRight,
-                          child: NLButton(
-                            label: l.scanSelect,
-                            size: NLButtonSize.sm,
-                            variant: hovered
-                                ? NLButtonVariant.primary
-                                : NLButtonVariant.secondary,
-                            onPressed: selectable
-                                ? () => controller.selectCandidate(device)
-                                : null,
-                          ),
+                          child: bleConnectable
+                              ? NLButton(
+                                  label: l.scanSelect,
+                                  size: NLButtonSize.sm,
+                                  variant: hovered
+                                      ? NLButtonVariant.primary
+                                      : NLButtonVariant.secondary,
+                                  onPressed: selectable
+                                      ? () => controller.selectCandidate(device)
+                                      : null,
+                                )
+                              : Text(
+                                  l.scanChannelPending,
+                                  style: NLType.aux.copyWith(
+                                    color: c.mutedForeground,
+                                  ),
+                                ),
                         ),
                       ),
                     ],
