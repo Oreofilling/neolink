@@ -134,6 +134,29 @@ if ($SkipDevice) {
   Remove-Item Env:NL_PROBE_MODE, Env:NL_PROBE_CYCLES, Env:NL_PROBE_KILL_AT -ErrorAction SilentlyContinue
 }
 
+# ---- msix installer (SKIP when the signing material is absent) ----
+$signDir = 'F:\work\neolink-signing'
+if (Test-Path "$signDir\neolink.pfx") {
+  Invoke-Step 'release build' {
+    Set-Location $app
+    flutter build windows --release --no-tree-shake-icons
+  }
+  Invoke-Step 'msix package' {
+    Set-Location $app
+    $certPw = (Get-Content "$signDir\cert-password.txt" -Raw).Trim()
+    dart run msix:create --certificate-path "$signDir\neolink.pfx" --certificate-password $certPw
+    $msix = Get-ChildItem "$app\build\msix\*.msix" | Select-Object -First 1
+    $sig = Get-AuthenticodeSignature $msix.FullName
+    Write-Output ("signed: " + $sig.Status + " " + $sig.SignerCertificate.Subject)
+    if ($sig.Status -ne 'Valid') { $global:LASTEXITCODE = 1 }
+  }
+} else {
+  [void]$results.Add([pscustomobject]@{
+    Step = 'msix package'; State = 'SKIP'; Seconds = 0
+    Detail = 'no signing cert at F:\work\neolink-signing'
+  })
+}
+
 # ---- gate record ----
 $head = git -C $repo log --oneline -1
 $dir = Join-Path $repo 'docs\gate-records'
