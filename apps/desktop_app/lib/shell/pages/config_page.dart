@@ -341,24 +341,35 @@ class _ConfigPageState extends State<ConfigPage> {
           style: TextStyle(fontSize: 12, color: c.mutedForeground),
         ),
         const SizedBox(height: 10),
-        _groupLabel(c, l.cfgGroupNetwork),
-        for (final section in network)
-          _moduleRow(c, l, section, poePower: poePower, delivering: delivering),
-        const SizedBox(height: 4),
-        _groupLabel(c, l.cfgGroupService),
-        for (final section in service)
-          _moduleRow(c, l, section, poePower: false, delivering: delivering),
+        if (network.isNotEmpty) ...[
+          _groupLabel(c, l.cfgGroupNetwork),
+          for (final section in network)
+            _moduleRow(
+              c,
+              l,
+              section,
+              poePower: poePower,
+              delivering: delivering,
+            ),
+        ],
+        if (service.isNotEmpty) ...[
+          const SizedBox(height: 6),
+          _groupLabel(c, l.cfgGroupService),
+          for (final section in service)
+            _moduleRow(c, l, section, poePower: false, delivering: delivering),
+        ],
       ],
     );
   }
 
   Widget _groupLabel(NLColors c, String text) => Padding(
-    padding: const EdgeInsets.fromLTRB(2, 4, 0, 8),
+    padding: const EdgeInsets.fromLTRB(2, 0, 0, 8),
     child: Text(
       text,
       style: TextStyle(
         fontSize: 11.5,
         fontWeight: FontWeight.w600,
+        letterSpacing: 0.4,
         color: c.mutedForeground,
       ),
     ),
@@ -377,13 +388,13 @@ class _ConfigPageState extends State<ConfigPage> {
     final tappable = section.configurable && !delivering;
     final filled = _sectionFilledCount(section.name);
     return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.only(bottom: 8),
       child: NLCard(
         child: InkWell(
           borderRadius: BorderRadius.circular(NLRadii.radiusLg),
           onTap: tappable ? () => _openSection(section.name) : null,
           child: Padding(
-            padding: const EdgeInsets.all(14),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
             child: Row(
               children: [
                 Icon(
@@ -409,14 +420,15 @@ class _ConfigPageState extends State<ConfigPage> {
                               ),
                             ),
                           ),
-                          const SizedBox(width: 8),
-                          if (!section.configurable)
+                          if (!section.configurable) ...[
+                            const SizedBox(width: 6),
                             NLBadge(
                               label: l.capsSectionReadonly,
                               variant: NLBadgeVariant.muted,
                             ),
+                          ],
                           if (section.scannable) ...[
-                            const SizedBox(width: 8),
+                            const SizedBox(width: 6),
                             NLBadge(
                               label: l.capsSectionScannable,
                               variant: NLBadgeVariant.info,
@@ -425,7 +437,7 @@ class _ConfigPageState extends State<ConfigPage> {
                           // PoE is a power attribute of device.info (§13.3):
                           // shown on the ethernet row when power contains poe.
                           if (poePower && section.name == 'ethernet') ...[
-                            const SizedBox(width: 8),
+                            const SizedBox(width: 6),
                             NLBadge(
                               label: l.capsPoePower,
                               variant: NLBadgeVariant.info,
@@ -438,6 +450,8 @@ class _ConfigPageState extends State<ConfigPage> {
                         section.fields.isEmpty
                             ? '${section.name} · —'
                             : '${section.name} · ${section.fields.join(", ")}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           fontSize: 11,
                           fontFamily: 'JetBrains Mono',
@@ -447,15 +461,12 @@ class _ConfigPageState extends State<ConfigPage> {
                     ],
                   ),
                 ),
-                const SizedBox(width: 8),
+                const SizedBox(width: 10),
                 if (section.configurable) ...[
-                  Text(
+                  _countChip(
+                    c,
                     filled > 0 ? l.cfgRowFilled(filled) : l.cfgRowEmpty,
-                    style: TextStyle(
-                      fontSize: 11.5,
-                      fontWeight: filled > 0 ? FontWeight.w600 : null,
-                      color: filled > 0 ? c.foreground : c.mutedForeground,
-                    ),
+                    filled > 0,
                   ),
                   const SizedBox(width: 6),
                 ],
@@ -471,6 +482,24 @@ class _ConfigPageState extends State<ConfigPage> {
       ),
     );
   }
+
+  /// Border-only count chip on a module row: same radius/padding language as
+  /// NLBadge, but outlined — content state lives in the text weight/color.
+  Widget _countChip(NLColors c, String label, bool filled) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+    decoration: BoxDecoration(
+      borderRadius: BorderRadius.circular(NLRadii.radiusSm),
+      border: Border.all(color: filled ? c.mutedForeground : c.border),
+    ),
+    child: Text(
+      label,
+      style: TextStyle(
+        fontSize: 11,
+        fontWeight: filled ? FontWeight.w600 : null,
+        color: filled ? c.foreground : c.mutedForeground,
+      ),
+    ),
+  );
 
   /// Filled-field count for one module row. Bools count when on; ints never
   /// count alone (a default port is not content).
@@ -509,19 +538,24 @@ class _ConfigPageState extends State<ConfigPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        // Navigation strip: the back button is a bordered control with a
+        // leading arrow — the one obvious way out. The kept-entries hint
+        // floats right on the same line so the strip stays one quiet line.
         Row(
           children: [
             NLButton(
               label: l.cfgBackToModules,
-              variant: NLButtonVariant.ghost,
+              icon: Icons.arrow_back,
+              variant: NLButtonVariant.secondary,
               size: NLButtonSize.sm,
               onPressed: delivering ? null : _backToModules,
             ),
-            const SizedBox(width: 10),
+            const Spacer(),
             Flexible(
               child: Text(
                 l.cfgDraftsKept,
                 overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.right,
                 style: TextStyle(fontSize: 11.5, color: c.mutedForeground),
               ),
             ),
@@ -805,15 +839,25 @@ class _ConfigPageState extends State<ConfigPage> {
               style: TextStyle(fontSize: 11, color: c.mutedForeground),
             ),
             const SizedBox(height: 10),
+            // Payload in a bordered box: raw mono text floating on the card
+            // reads unfinished; a frame gives the preview a clear boundary.
             ConstrainedBox(
               constraints: const BoxConstraints(maxHeight: 260),
-              child: SingleChildScrollView(
-                child: SelectableText(
-                  text,
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontFamily: 'JetBrains Mono',
-                    color: c.mutedForeground,
+              child: Container(
+                width: double.infinity,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(NLRadii.radiusMd),
+                  border: Border.all(color: c.border),
+                ),
+                padding: const EdgeInsets.all(10),
+                child: SingleChildScrollView(
+                  child: SelectableText(
+                    text,
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontFamily: 'JetBrains Mono',
+                      color: c.mutedForeground,
+                    ),
                   ),
                 ),
               ),
