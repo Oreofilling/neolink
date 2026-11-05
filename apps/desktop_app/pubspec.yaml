@@ -48,6 +48,19 @@ dev_dependencies:
   integration_test:
     sdk: flutter
   flutter_lints: ^4.0.0
+  # MSIX installer packaging (M6): self-signed first, store/EV signing later.
+  # build_windows stays false - the release exe is built explicitly with
+  # --no-tree-shake-icons and msix packages that output.
+  msix: ^3.16.7
+msix_config:
+  display_name: NeoLink
+  publisher_name: camthink-ai
+  identity_name: NeoLink
+  msix_version: 0.2.0.0
+  architecture: x64
+  capabilities: bluetooth,webcam
+  build_windows: false
+  output_path: build\msix
 flutter:
   uses-material-design: true
   generate: true
