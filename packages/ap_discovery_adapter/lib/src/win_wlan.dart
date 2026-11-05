@@ -38,9 +38,13 @@ final class WlanNetwork {
   final String profileName;
 }
 
-// Variable-length C arrays use the trailing-array idiom: the last struct
-// member is declared @Array(1) and indexed past its length — the
-// documented pattern for flexible array members.
+// wlanapi list structs follow wlanapitypes.h exactly: a two-DWORD
+// header (dwNumberOfItems, dwIndex) followed by an INLINE struct
+// array. No dwTotalSize (unlike most Win32 list structs) and no
+// pointer array — a byte dump on the box confirmed the GUID bytes sit
+// directly at offset 8. Walks use address arithmetic over the
+// @Array(1) trailing members accordingly.
+const int _kListHeaderSize = 8;
 
 final class _Guid extends Struct {
   @Uint32()
@@ -63,13 +67,11 @@ final class _WlanInterfaceInfo extends Struct {
 
 final class _WlanInterfaceInfoList extends Struct {
   @Uint32()
-  external int totalSize;
-  @Uint32()
   external int numberOfItems;
   @Uint32()
   external int index;
   @Array(1)
-  external Array<Pointer<_WlanInterfaceInfo>> interfaceInfo;
+  external Array<_WlanInterfaceInfo> interfaceInfo;
 }
 
 final class _Dot11Ssid extends Struct {
@@ -110,15 +112,17 @@ final class _WlanAvailableNetwork extends Struct {
   external int cipherAlgorithm;
   @Uint32()
   external int flags;
+  @Uint32()
+  external int reserved;
 }
 
 final class _WlanAvailableNetworkList extends Struct {
   @Uint32()
-  external int totalSize;
-  @Uint32()
   external int numberOfItems;
+  @Uint32()
+  external int index;
   @Array(1)
-  external Array<Pointer<_WlanAvailableNetwork>> network;
+  external Array<_WlanAvailableNetwork> network;
 }
 
 typedef _WlanOpenHandleNative = Uint32 Function(
@@ -275,16 +279,21 @@ final class WinWlanScanner {
 
       final seen = <String>{};
       final networks = <WlanNetwork>[];
+      final ifBase = interfaceList.value.address + _kListHeaderSize;
       for (var i = 0; i < count; i++) {
-        final infoPtr = list.interfaceInfo[i];
+        final infoPtr = Pointer<_WlanInterfaceInfo>.fromAddress(
+            ifBase + i * sizeOf<_WlanInterfaceInfo>());
         // interfaceGuid is the first field (offset 0): the struct pointer
         // doubles as the GUID pointer.
-        final guidPtr = Pointer<_Guid>.fromAddress(infoPtr.address);
+        final guidPtr = infoPtr.cast<_Guid>();
         // Cached results of the previous scan first...
         if (_getNetworks(handle.value, guidPtr, 0, nullptr, networkList) == 0) {
           final scanned = networkList.value.ref;
+          final netBase = networkList.value.address + _kListHeaderSize;
           for (var k = 0; k < scanned.numberOfItems; k++) {
-            final raw = scanned.network[k].ref;
+            final raw = Pointer<_WlanAvailableNetwork>.fromAddress(
+                    netBase + k * sizeOf<_WlanAvailableNetwork>())
+                .ref;
             final ssid = _ssidBytes(raw.dot11Ssid);
             if (ssid.isEmpty || !seen.add(ssid)) continue;
             networks.add(WlanNetwork(
