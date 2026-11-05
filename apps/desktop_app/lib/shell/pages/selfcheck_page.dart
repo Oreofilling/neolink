@@ -64,182 +64,178 @@ class _SelfcheckPageState extends State<SelfcheckPage> {
             : (report.canProceed ? l.selfcheckReady : l.selfcheckBlocked);
         return SingleChildScrollView(
           padding: const EdgeInsets.fromLTRB(24, 28, 24, 20),
-            child: Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 520),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const NLLogo(size: 26),
-                        const SizedBox(width: 9),
-                        const Text(
-                          'NeoLink',
-                          style: TextStyle(
-                            fontSize: 17,
-                            fontWeight: FontWeight.w800,
-                          ),
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 520),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const NLLogo(size: 26),
+                      const SizedBox(width: 9),
+                      const Text(
+                        'NeoLink',
+                        style: TextStyle(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w800,
                         ),
-                        const SizedBox(width: 10),
-                        Text(
-                          l.brandSubtitle,
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: c.mutedForeground,
-                          ),
+                      ),
+                      const SizedBox(width: 10),
+                      Text(
+                        l.brandSubtitle,
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: c.mutedForeground,
                         ),
-                      ],
-                    ),
-                    const SizedBox(height: 20),
-                    NLCard(
-                      child: Padding(
-                        padding: const EdgeInsets.all(20),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            // Header: title/status on the left, the re-check
-                            // icon pinned to the card's top-right corner —
-                            // the only control that persists across states.
-                            Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        l.navSelfcheck,
-                                        style: NLType.pageTitle,
-                                      ),
-                                      const SizedBox(height: 6),
-                                      Text(
-                                        status,
-                                        style: NLType.aux.copyWith(
-                                          color: c.mutedForeground,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                _recheckIcon(c, l),
-                              ],
-                            ),
-                            const SizedBox(height: 12),
-                            if (report == null)
-                              ...List.generate(
-                                3,
-                                (index) => const Padding(
-                                  padding: EdgeInsets.only(bottom: 12),
-                                  child: NLSkeleton(width: 320, height: 14),
-                                ),
-                              )
-                            else
-                              for (var i = 0; i < report.channels.length; i++)
-                                _channelRow(
-                                  c,
-                                  l,
-                                  report.channels[i],
-                                  index: i,
-                                  walkIndex: walkIndex,
-                                ),
-                            const SizedBox(height: 16),
-                            // Round-2 A1: big countdown digits plus a draining
-                            // bar sitting right above the action buttons.
-                            // v7d: the pause button beside the digits is the
-                            // one explicit way to stop the auto-jump — no
-                            // more click-anywhere.
-                            if (counting != null) ...[
-                              Row(
-                                crossAxisAlignment: CrossAxisAlignment.end,
-                                children: [
-                                  Text(
-                                    '$counting',
-                                    style: const TextStyle(
-                                      fontSize: 34,
-                                      fontWeight: FontWeight.w800,
-                                      height: 1,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+                  NLCard(
+                    child: Padding(
+                      padding: const EdgeInsets.all(20),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // Header: title/status on the left, the re-check
+                          // icon pinned to the card's top-right corner —
+                          // the only control that persists across states.
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      l.navSelfcheck,
+                                      style: NLType.pageTitle,
                                     ),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Padding(
-                                    padding: const EdgeInsets.only(bottom: 3),
-                                    child: Text(
-                                      l.selfcheckCountdownHint,
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      status,
                                       style: NLType.aux.copyWith(
                                         color: c.mutedForeground,
                                       ),
                                     ),
-                                  ),
-                                  const Spacer(),
-                                  IconButton(
-                                    tooltip: l.btnPauseCountdown,
-                                    icon: Icon(
-                                      Icons.pause_circle_outline,
-                                      size: 26,
-                                      color: c.accentCyan,
-                                    ),
-                                    onPressed: controller.stayOnSelfCheck,
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 8),
-                              Container(
-                                height: 6,
-                                decoration: BoxDecoration(
-                                  color: c.muted,
-                                  borderRadius: BorderRadius.circular(3),
-                                ),
-                                clipBehavior: Clip.antiAlias,
-                                alignment: Alignment.centerLeft,
-                                child: AnimatedFractionallySizedBox(
-                                  duration: const Duration(milliseconds: 900),
-                                  curve: Curves.linear,
-                                  widthFactor:
-                                      (counting /
-                                              controller
-                                                  .selfCheckHold
-                                                  .inSeconds)
-                                          .clamp(0.0, 1.0),
-                                  child: ColoredBox(
-                                    color: c.foreground,
-                                    child: const SizedBox.expand(),
-                                  ),
+                                  ],
                                 ),
                               ),
-                              const SizedBox(height: 12),
+                              const SizedBox(width: 8),
+                              _recheckIcon(c, l),
                             ],
-                            // v7d: while the walk plays, the pause button in
-                            // the header-less state is the scan-now jump —
-                            // the row-level walk cannot be paused anymore
-                            // (it reveals in under two seconds total).
-                            if (counting != null || held)
-                              NLButton(
-                                label: l.btnScanNow,
-                                size: NLButtonSize.sm,
-                                onPressed: controller.startScanNow,
+                          ),
+                          const SizedBox(height: 12),
+                          if (report == null)
+                            ...List.generate(
+                              3,
+                              (index) => const Padding(
+                                padding: EdgeInsets.only(bottom: 12),
+                                child: NLSkeleton(width: 320, height: 14),
                               ),
-                            if (controller.selfCheckAt != null)
-                              Padding(
-                                padding: const EdgeInsets.only(top: 8),
-                                child: Text(
-                                  l.selfcheckLastRun(
-                                    _clock(controller.selfCheckAt!),
-                                  ),
-                                  style: NLType.mono.copyWith(
-                                    color: c.mutedForeground,
+                            )
+                          else
+                            for (var i = 0; i < report.channels.length; i++)
+                              _channelRow(
+                                c,
+                                l,
+                                report.channels[i],
+                                index: i,
+                                walkIndex: walkIndex,
+                              ),
+                          const SizedBox(height: 16),
+                          // Round-2 A1: big countdown digits plus a draining
+                          // bar sitting right above the action buttons.
+                          // v7d: the pause button beside the digits is the
+                          // one explicit way to stop the auto-jump — no
+                          // more click-anywhere.
+                          if (counting != null) ...[
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              children: [
+                                Text(
+                                  '$counting',
+                                  style: const TextStyle(
+                                    fontSize: 34,
+                                    fontWeight: FontWeight.w800,
+                                    height: 1,
                                   ),
                                 ),
+                                const SizedBox(width: 8),
+                                Padding(
+                                  padding: const EdgeInsets.only(bottom: 3),
+                                  child: Text(
+                                    l.selfcheckCountdownHint,
+                                    style: NLType.aux.copyWith(
+                                      color: c.mutedForeground,
+                                    ),
+                                  ),
+                                ),
+                                const Spacer(),
+                                IconButton(
+                                  tooltip: l.btnPauseCountdown,
+                                  icon: Icon(
+                                    Icons.pause_circle_outline,
+                                    size: 26,
+                                    color: c.accentCyan,
+                                  ),
+                                  onPressed: controller.stayOnSelfCheck,
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            Container(
+                              height: 6,
+                              decoration: BoxDecoration(
+                                color: c.muted,
+                                borderRadius: BorderRadius.circular(3),
                               ),
+                              clipBehavior: Clip.antiAlias,
+                              alignment: Alignment.centerLeft,
+                              child: AnimatedFractionallySizedBox(
+                                duration: const Duration(milliseconds: 900),
+                                curve: Curves.linear,
+                                widthFactor:
+                                    (counting /
+                                            controller.selfCheckHold.inSeconds)
+                                        .clamp(0.0, 1.0),
+                                child: ColoredBox(
+                                  color: c.foreground,
+                                  child: const SizedBox.expand(),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 12),
                           ],
-                        ),
+                          // v7d: while the walk plays, the pause button in
+                          // the header-less state is the scan-now jump —
+                          // the row-level walk cannot be paused anymore
+                          // (it reveals in under two seconds total).
+                          if (counting != null || held)
+                            NLButton(
+                              label: l.btnScanNow,
+                              size: NLButtonSize.sm,
+                              onPressed: controller.startScanNow,
+                            ),
+                          if (controller.selfCheckAt != null)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 8),
+                              child: Text(
+                                l.selfcheckLastRun(
+                                  _clock(controller.selfCheckAt!),
+                                ),
+                                style: NLType.mono.copyWith(
+                                  color: c.mutedForeground,
+                                ),
+                              ),
+                            ),
+                        ],
                       ),
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ),
           ),
@@ -323,10 +319,7 @@ class _SelfcheckPageState extends State<SelfcheckPage> {
                   ),
                 ),
                 if (isActive)
-                  NLBadge(
-                    label: l.badgeChecking,
-                    variant: NLBadgeVariant.info,
-                  )
+                  NLBadge(label: l.badgeChecking, variant: NLBadgeVariant.info)
                 else if (isQueued)
                   NLBadge(label: l.selfcheckQueued)
                 else

@@ -10,6 +10,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:neolink_ui/neolink_ui.dart';
+import 'package:provisioning_session/provisioning_session.dart'
+    hide ConfigSection;
 
 import '../../l10n/app_localizations.dart';
 import '../../l10n/labels.dart';
@@ -173,7 +175,7 @@ class _ResultPageState extends State<ResultPage> {
   Widget _storedCard(
     NLColors c,
     AppLocalizations l,
-    DeliveryResult? result,
+    SetConfigResult? result,
     SessionReceipt? receipt,
   ) {
     return NLCard(

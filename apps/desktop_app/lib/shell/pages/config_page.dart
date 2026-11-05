@@ -168,7 +168,7 @@ class _ConfigPageState extends State<ConfigPage> {
   /// True when any opened module carries operator input — the gate for the
   /// discard confirmation on session cancel (v7d product ask #4).
   bool get _hasUnsavedInput =>
-      controller.editingSections.any(_sectionFilledCount > 0);
+      controller.editingSections.any((s) => _sectionFilledCount(s) > 0);
 
   /// Cancel the session: straight back to scanning when nothing was typed;
   /// with input on the line, a confirm dialog offers keep-editing vs the

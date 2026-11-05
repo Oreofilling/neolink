@@ -4,6 +4,8 @@
 // missing (exactly the widget-test environment).
 library;
 
+import 'dart:ui' show Locale; // Locale lives in dart:ui, not flutter_test
+
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:desktop_app/l10n/app_localizations.dart';
