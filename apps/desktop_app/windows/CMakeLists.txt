@@ -4,7 +4,9 @@ project(desktop_app LANGUAGES CXX)
 
 # The name of the executable created for the application. Change this to change
 # the on-disk name of your application.
-set(BINARY_NAME "desktop_app")
+# v7d product identity: the shipped exe is NeoLink.exe (Runner.rc
+# OriginalFilename/ProductName mirror this).
+set(BINARY_NAME "NeoLink")
 
 # Explicitly opt in to modern CMake behaviors to avoid warnings with recent
 # versions of CMake.
