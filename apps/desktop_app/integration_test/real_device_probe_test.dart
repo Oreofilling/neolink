@@ -195,8 +195,15 @@ void main() {
         mark('CYCLE $cycle PASS in ${cycleWatch.elapsed.inSeconds}s');
 
         unawaited(controller.finishSession());
+        // finishSession goes completed -> cleaning -> scanning, and the
+        // scan loop may re-find the still-advertising device (or report
+        // empty) before a poll lands on the transient scanning phase.
+        // Any post-cleanup phase proves the session closed.
         if (!await _waitFor(
-          () => controller.phase == SessionPhase.scanning,
+          () =>
+              controller.phase == SessionPhase.scanning ||
+              controller.phase == SessionPhase.resultsAvailable ||
+              controller.phase == SessionPhase.scanEmpty,
           const Duration(seconds: 15),
           'session close in cycle $cycle',
         )) {
