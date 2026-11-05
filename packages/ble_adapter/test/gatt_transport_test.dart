@@ -10,10 +10,10 @@ import 'package:test_vectors/test_vectors.dart' as tv;
 void main() {
   /// 按协议文档示例构造 device.info.get 请求。
   ProvRequest deviceInfoRequest() => const ProvRequest(
-    id: 1,
-    opName: 'device.info.get',
-    data: <String, Object?>{},
-  );
+        id: 1,
+        opName: 'device.info.get',
+        data: <String, Object?>{},
+      );
 
   /// 取向量 JSON 原文。
   String jsonOf(String id) =>
@@ -24,12 +24,13 @@ void main() {
     String jsonText, {
     int mtu = 23,
     required int messageId,
-  }) => slicePacket(
-    mtu: mtu,
-    kind: ProvPacketKind.response,
-    messageId: messageId,
-    jsonText: jsonText,
-  );
+  }) =>
+      slicePacket(
+        mtu: mtu,
+        kind: ProvPacketKind.response,
+        messageId: messageId,
+        jsonText: jsonText,
+      );
 
   test('发送请求：写出帧与切片器输出逐字节一致，message_id 递增', () async {
     final channel = FakeChannel();
@@ -81,13 +82,14 @@ void main() {
     final channel = FakeChannel();
     final transport = CtProvGattTransport(channel)..start();
     final future = transport.sendRequest(deviceInfoRequest());
-    // 挂好期望再 close：close 发生在写入完成、响应未回之间，在途
-    // completer 一度没有监听者，错误投递不得升级为未处理异步错误
-    // （链接断开是常态路径）。
+    // Attach the expectation BEFORE close: close lands between "frames
+    // written" and "response arrived" — the in-flight completer has no
+    // listener for a moment, and the error delivery must not escalate into
+    // an unhandled async error (a dropped link is a normal path).
     final outcome = expectLater(future, throwsStateError);
     await transport.close();
     await outcome;
-    // 关闭后的新请求立即失败，不再写帧。
+    // A new request after close fails immediately and writes nothing.
     final writesAfterClose = channel.writes.length;
     await expectLater(
       transport.sendRequest(deviceInfoRequest()),

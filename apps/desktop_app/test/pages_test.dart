@@ -30,7 +30,8 @@ ProvisioningController wiredController(
   discoverySource: source,
   establishPairing: (_) async {},
   connectChannel: (_, __) async => device,
-  // 默认空流：不测断连的用例不触碰 universal_ble 静态（测试环境无插件）。
+  // Default empty stream: cases not exercising link loss never touch
+  // the universal_ble static (no plugin in the test environment).
   linkEvents: linkEvents ?? ((_) => const Stream<bool>.empty()),
   scanTimeout: scanTimeout,
   selfCheckHold: selfCheckHold,
@@ -210,9 +211,12 @@ void main() {
 
     await pumpApp(tester, controller);
     await settle(tester);
-    await tester.pump(const Duration(seconds: 21)); // 超时 → 空态提示
+    await tester.pump(
+      const Duration(seconds: 21),
+    ); // window burns out -> empty hint
     expect(controller.phase, SessionPhase.scanEmpty);
-    // v7c: 空结果不换页——扫描页原位提示未发现设备，扫码入口在底部。
+    // v7c: empty result stays on this page — inline no-devices hint,
+    // QR entry at the bottom.
     expect(find.text('未发现您的设备'), findsOneWidget);
     expect(find.textContaining('附近没有发现可配置设备'), findsOneWidget);
 
@@ -680,9 +684,7 @@ void main() {
     expect(find.text('中文'), findsOneWidget); // 存储语言覆盖系统英文
   });
 
-  testWidgets('v7c 断连弹窗：草稿保留，重连原位恢复，返回列表回扫描', (
-    tester,
-  ) async {
+  testWidgets('v7c 断连弹窗：草稿保留，重连原位恢复，返回列表回扫描', (tester) async {
     final source = FakeSource();
     final device = FakeCtDevice();
     final link = StreamController<bool>.broadcast();
@@ -708,7 +710,7 @@ void main() {
     await settle(tester, 2);
     expect(controller.phase, SessionPhase.editingConfig);
 
-    // 链路断开 → 弹窗压在冻结的表单上（草稿不动）。
+    // Link drops -> the modal sits over the frozen form (drafts kept).
     link.add(false);
     await settle(tester, 2);
     expect(controller.phase, SessionPhase.linkLost);
@@ -717,14 +719,14 @@ void main() {
     expect(find.text('重新连接'), findsOneWidget);
     expect(find.text('返回设备列表'), findsOneWidget);
 
-    // 重连成功 → 弹窗消失、原位回表单、已填内容还在。
+    // Reconnect succeeds -> modal gone, form back in place, values kept.
     await tester.tap(find.text('重新连接'));
     await settle(tester);
     expect(controller.phase, SessionPhase.editingConfig);
     expect(find.text('连接已断开'), findsNothing);
     expect(find.text('Home-2.4G'), findsWidgets);
 
-    // 再次断开 → 返回设备列表 → 回扫描，编辑轮清空。
+    // Drop again -> back to the device list -> scanning, round cleared.
     link.add(false);
     await settle(tester, 2);
     expect(controller.phase, SessionPhase.linkLost);
@@ -733,7 +735,7 @@ void main() {
     expect(controller.phase, SessionPhase.scanning);
     expect(controller.editingSections, isEmpty);
     expect(controller.drafts, isEmpty);
-    // 泵过扫描窗口收敛回空态，收尾无挂起定时器。
+    // Pump past the scan window to settle on empty; no dangling timers.
     await tester.pump(const Duration(seconds: 21));
     expect(controller.phase, SessionPhase.scanEmpty);
   });

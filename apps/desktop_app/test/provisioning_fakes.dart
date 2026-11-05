@@ -162,7 +162,14 @@ final class FakeCtDevice implements CtGattChannel {
                 'kind': 'network',
                 'configurable': true,
                 'scannable': false,
-                'fields': ['apn', 'username', 'password', 'pin', 'auth', 'roaming'],
+                'fields': [
+                  'apn',
+                  'username',
+                  'password',
+                  'pin',
+                  'auth',
+                  'roaming',
+                ],
               },
               {
                 'name': 'ethernet',
@@ -363,8 +370,9 @@ final class FakeCtDevice implements CtGattChannel {
   Future<void> close() => _d2c.close();
 }
 
-/// FakeCtDevice 加手动闸：armGate 后的下一批上行帧等 openGate 才放行，
-/// 用于把 config.set 摁在途（配合断连测试的 delivering 场景）。
+/// FakeCtDevice with a manual gate: after armGate, the next uplink frames
+/// wait for openGate — used to hold config.set in flight (delivering
+/// scenario of the link-loss tests).
 final class GatedFakeCtDevice extends FakeCtDevice {
   Completer<void>? _gate;
 

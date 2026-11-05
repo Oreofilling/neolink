@@ -27,7 +27,8 @@ ProvisioningController makeController(
   discoverySource: source,
   establishPairing: (_) async {},
   connectChannel: connect ?? ((_, __) async => FakeCtDevice()),
-  // 默认空流：不测断连的用例不触碰 universal_ble 静态（测试环境无插件）。
+  // Default empty stream: cases not exercising link loss never touch
+  // the universal_ble static (no plugin in the test environment).
   linkEvents: linkEvents ?? ((_) => const Stream<bool>.empty()),
   scanTimeout: scanTimeout,
   sweepInterval: sweepInterval,
@@ -880,41 +881,44 @@ void main() {
   });
 
   group('link loss (v7c)', () {
-    test('drop during editing keeps the round; reconnect resumes in place', () async {
-      final source = FakeSource();
-      final device = FakeCtDevice();
-      final link = StreamController<bool>.broadcast();
-      addTearDown(link.close);
-      final controller = await connectedToCaps(
-        source,
-        device,
-        linkEvents: (_) => link.stream,
-      );
+    test(
+      'drop during editing keeps the round; reconnect resumes in place',
+      () async {
+        final source = FakeSource();
+        final device = FakeCtDevice();
+        final link = StreamController<bool>.broadcast();
+        addTearDown(link.close);
+        final controller = await connectedToCaps(
+          source,
+          device,
+          linkEvents: (_) => link.stream,
+        );
 
-      await controller.openSection('wifi');
-      controller.updateDraft(
-        const WifiSection(ssid: 'Home-2.4G', password: 'example-password'),
-      );
+        await controller.openSection('wifi');
+        controller.updateDraft(
+          const WifiSection(ssid: 'Home-2.4G', password: 'example-password'),
+        );
 
-      link.add(false);
-      await until(
-        () => controller.phase == SessionPhase.linkLost,
-        'drop did not fire',
-      );
-      expect(controller.linkLostDuringDelivery, isFalse);
-      expect(controller.editingSections, ['wifi']);
-      expect((controller.drafts['wifi'] as WifiSection).ssid, 'Home-2.4G');
+        link.add(false);
+        await until(
+          () => controller.phase == SessionPhase.linkLost,
+          'drop did not fire',
+        );
+        expect(controller.linkLostDuringDelivery, isFalse);
+        expect(controller.editingSections, ['wifi']);
+        expect((controller.drafts['wifi'] as WifiSection).ssid, 'Home-2.4G');
 
-      await controller.reconnectLink();
-      expect(controller.phase, SessionPhase.editingConfig);
-      expect(controller.linkReconnectFailed, isFalse);
-      expect((controller.drafts['wifi'] as WifiSection).ssid, 'Home-2.4G');
+        await controller.reconnectLink();
+        expect(controller.phase, SessionPhase.editingConfig);
+        expect(controller.linkReconnectFailed, isFalse);
+        expect((controller.drafts['wifi'] as WifiSection).ssid, 'Home-2.4G');
 
-      // 幂等重发：恢复后的新会话上直接下发成功。
-      await controller.submit();
-      expect(controller.phase, SessionPhase.completed);
-      expect(device.lastConfigSet!.keys, ['wifi']);
-    });
+        // Idempotent redelivery: submit succeeds on the restored session.
+        await controller.submit();
+        expect(controller.phase, SessionPhase.completed);
+        expect(device.lastConfigSet!.keys, ['wifi']);
+      },
+    );
 
     test('reconnect failure stays on linkLost with the retry note', () async {
       final source = FakeSource();
@@ -942,75 +946,83 @@ void main() {
       );
 
       await controller.reconnectLink();
-      expect(controller.phase, SessionPhase.linkLost); // 未恢复
+      expect(controller.phase, SessionPhase.linkLost); // not restored
       expect(controller.linkReconnectFailed, isTrue);
 
-      // 第三次连接成功 → 仍可恢复编辑（重试提示清除）。
+      // Third connect succeeds -> editing restored (retry note cleared).
       await controller.reconnectLink();
       expect(controller.phase, SessionPhase.editingConfig);
       expect(controller.linkReconnectFailed, isFalse);
     });
 
-    test('drop during delivering discards the late result (idempotent redo)', () async {
-      final source = FakeSource();
-      final device = GatedFakeCtDevice();
-      final link = StreamController<bool>.broadcast();
-      addTearDown(link.close);
-      final controller = await connectedToCaps(
-        source,
-        device,
-        linkEvents: (_) => link.stream,
-      );
+    test(
+      'drop during delivering discards the late result (idempotent redo)',
+      () async {
+        final source = FakeSource();
+        final device = GatedFakeCtDevice();
+        final link = StreamController<bool>.broadcast();
+        addTearDown(link.close);
+        final controller = await connectedToCaps(
+          source,
+          device,
+          linkEvents: (_) => link.stream,
+        );
 
-      await controller.openSection('wifi');
-      controller.updateDraft(
-        const WifiSection(ssid: 'Home-2.4G', password: 'example-password'),
-      );
-      device.armGate(); // config.set 摁在途
-      unawaited(controller.submit());
-      await until(
-        () => controller.phase == SessionPhase.delivering,
-        'submit did not reach delivering',
-      );
+        await controller.openSection('wifi');
+        controller.updateDraft(
+          const WifiSection(ssid: 'Home-2.4G', password: 'example-password'),
+        );
+        device.armGate(); // hold config.set in flight
+        unawaited(controller.submit());
+        await until(
+          () => controller.phase == SessionPhase.delivering,
+          'submit did not reach delivering',
+        );
 
-      link.add(false);
-      await until(
-        () => controller.phase == SessionPhase.linkLost,
-        'drop did not fire',
-      );
-      expect(controller.linkLostDuringDelivery, isTrue);
+        link.add(false);
+        await until(
+          () => controller.phase == SessionPhase.linkLost,
+          'drop did not fire',
+        );
+        expect(controller.linkLostDuringDelivery, isTrue);
 
-      // 放行被摁住的首帧：close 已中止剩余分片，设备永远收不到完整包
-      // ——这正是幂等重发的场景；迟到结果按当前相位丢弃，界面停在弹窗。
-      device.openGate();
-      await Future<void>.delayed(const Duration(milliseconds: 20));
-      expect(controller.phase, SessionPhase.linkLost);
-      expect(controller.deliveryResult, isNull);
-      expect(device.lastConfigSet, isNull);
-    });
+        // Release the held first frame: close already aborted the remaining
+        // fragments, so the device never sees a complete packet — exactly the
+        // idempotent-redo scenario; the late result is discarded by the phase
+        // guard and the UI stays on the modal.
+        device.openGate();
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        expect(controller.phase, SessionPhase.linkLost);
+        expect(controller.deliveryResult, isNull);
+        expect(device.lastConfigSet, isNull);
+      },
+    );
 
-    test('rescan from linkLost clears the round and returns to scanning', () async {
-      final source = FakeSource();
-      final device = FakeCtDevice();
-      final link = StreamController<bool>.broadcast();
-      addTearDown(link.close);
-      final controller = await connectedToCaps(
-        source,
-        device,
-        linkEvents: (_) => link.stream,
-      );
+    test(
+      'rescan from linkLost clears the round and returns to scanning',
+      () async {
+        final source = FakeSource();
+        final device = FakeCtDevice();
+        final link = StreamController<bool>.broadcast();
+        addTearDown(link.close);
+        final controller = await connectedToCaps(
+          source,
+          device,
+          linkEvents: (_) => link.stream,
+        );
 
-      await controller.openSection('wifi');
-      link.add(false);
-      await until(
-        () => controller.phase == SessionPhase.linkLost,
-        'drop did not fire',
-      );
+        await controller.openSection('wifi');
+        link.add(false);
+        await until(
+          () => controller.phase == SessionPhase.linkLost,
+          'drop did not fire',
+        );
 
-      await controller.rescan();
-      expect(controller.phase, SessionPhase.scanning);
-      expect(controller.editingSections, isEmpty);
-      expect(controller.drafts, isEmpty);
-    });
+        await controller.rescan();
+        expect(controller.phase, SessionPhase.scanning);
+        expect(controller.editingSections, isEmpty);
+        expect(controller.drafts, isEmpty);
+      },
+    );
   });
 }

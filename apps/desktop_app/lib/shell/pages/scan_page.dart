@@ -27,12 +27,16 @@ class ScanPage extends StatelessWidget {
       listenable: controller,
       builder: (context, _) {
         final scanning = controller.phase == SessionPhase.scanning;
-        // v7c: 空结果不再换页——扫描页原位提示未发现设备，扫码添加是
-        // 主出路（唤醒设备 → 输设备码 → 连接），重扫覆盖「设备刚醒」。
+        // v7c: empty result no longer swaps pages — the scan page shows the
+        // no-devices hint in place; add-by-QR-code is the main way out
+        // (wake the device -> enter its code -> connect) and rescan covers
+        // "it just woke up".
         final empty = controller.phase == SessionPhase.scanEmpty;
         final candidates = controller.candidates;
-        // v7c: 扫码条钉在视口底部、不随内容滚动——空态面板/长设备表
-        // 在矮窗口（800x600 的测试画布即最矮情况）也不会把它顶出屏。
+        // v7c: the QR strip is pinned to the viewport bottom and never
+        // scrolls with content — the empty panel or a long device table in
+        // a short window (the 800x600 test canvas is the worst case) cannot
+        // push it off-screen.
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [

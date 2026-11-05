@@ -247,15 +247,17 @@ final class ProvisioningMachine {
   /// 下发失败后修改再试。
   void editAgain() => _transition(SessionPhase.editingConfig);
 
-  /// 配置会话期间链路断开（BLE supervision 超时/设备休眠）：编辑中的
-  /// 配置内容全部保留，重连成功后经 [linkRestored] 原位恢复；链路释放
-  /// 由控制器在调用前完成（断开事件本身就是释放信号）。
+  /// Link dropped mid session (BLE supervision timeout / device sleep):
+  /// everything being edited is kept; a successful reconnect re-enters in
+  /// place via [linkRestored]. The controller releases the link before
+  /// calling (the disconnect event itself is the release signal).
   void markLinkLost() => _transition(SessionPhase.linkLost);
 
-  /// 重连成功：已有打开模块（编辑中）回编辑相位，否则回模块选择。
+  /// Reconnect succeeded: back to editing when a module is open, otherwise
+  /// back to module selection.
   void linkRestored({required bool editing}) => _transition(
-    editing ? SessionPhase.editingConfig : SessionPhase.choosingSections,
-  );
+        editing ? SessionPhase.editingConfig : SessionPhase.choosingSections,
+      );
 
   /// 任意相位进入清理：释放链路 + 停止发现源，完成后回到扫描循环。
   /// 钩子必须可重入（链路可能已断、源可能已停）。

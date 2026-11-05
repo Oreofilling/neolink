@@ -1,12 +1,15 @@
-/// 链路状态桥（断连检测）：universal_ble 的连接事件流直接透出。
+/// Link-state bridge (loss detection): passes universal_ble's connection
+/// event stream straight through.
 ///
-/// BLE 链路断开由链路层 supervision 定时器判定（连接建立后 OS 持续监督，
-/// 超时未听到对端即推送 ConnectionStatusChanged），插件转成 per-device
-/// 的 true/false 流——检测不产生任何应用层流量，协议零改动。
+/// A BLE link drop is detected by the link-layer supervision timer (the OS
+/// keeps supervising once connected and raises ConnectionStatusChanged when
+/// the peer goes silent); the plugin surfaces that as a per-device
+/// true/false stream — detection costs zero application traffic and no
+/// protocol change.
 library;
 
 import 'package:universal_ble/universal_ble.dart';
 
-/// [deviceId] 的连接事件：true = 已连接，false = 已断开。
+/// Connection events for [deviceId]: true = connected, false = dropped.
 Stream<bool> universalLinkEvents(String deviceId) =>
     UniversalBle.connectionStream(deviceId);

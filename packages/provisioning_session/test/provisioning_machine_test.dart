@@ -117,11 +117,11 @@ void main() {
     });
 
     test('断链可从四个会话相位进入，清理是逃生门', () async {
-      // choosingSections（connectedMachine 止点即该相位）。
+      // choosingSections (connectedMachine already stops there).
       final choosing = connectedMachine();
       choosing.markLinkLost();
       expect(choosing.phase, SessionPhase.linkLost);
-      // editingConfig → delivering → operationError 逐一验证。
+      // Walk editingConfig -> delivering -> operationError in turn.
       final machine = connectedMachine();
       machine.beginEditing();
       machine.markLinkLost();

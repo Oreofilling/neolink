@@ -89,17 +89,20 @@ class ProvisioningController extends ChangeNotifier {
   CtGattChannel? _channel;
   CtSessionClient? _session;
 
-  /// 链路断开监听（能力读取成功后订阅；断开/释放时取消）。
+  /// Link-loss subscription (attached once capabilities are read;
+  /// cancelled on drop/release).
   StreamSubscription<bool>? _linkSub;
 
-  /// 重新连接是否在途（弹窗按钮禁用态）。
+  /// Reconnect attempt in flight (drives the modal button's busy state).
   bool get reconnecting => _reconnecting;
   bool _reconnecting = false;
 
-  /// 上次重新连接未成功（弹窗内联提示；再次尝试前清除）。
+  /// Last reconnect attempt failed (inline note in the modal; cleared
+  /// before the next attempt).
   bool linkReconnectFailed = false;
 
-  /// 断开发生在下发中（弹窗文案变体：引导幂等重发）。
+  /// Drop happened while delivering (modal copy variant: guide toward
+  /// idempotent redelivery).
   bool linkLostDuringDelivery = false;
 
   /// 自检结果（首次完成后保持，供各页展示通道状态）。
@@ -153,9 +156,10 @@ class ProvisioningController extends ChangeNotifier {
   SessionPhase get phase => _machine.phase;
   List<DiscoveryCandidate> get candidates => _registry.snapshot;
 
-  /// 状态机相位 → 流程页 id（壳据此切换全页工作区；v6 交互：扫描/结果
-  /// 同页呈现，能力与表单合并为单一配置页；空结果不换页——扫描页原位
-  /// 提示并保留扫码添加入口）。
+  /// Machine phase -> flow page id (the shell switches its workspace on
+  /// this; v6 interaction: scan/results share one page, capabilities and
+  /// form are one config page; v7c: an empty result stays on the scan page
+  /// with the inline hint and the QR entry).
   String get pageForPhase => switch (_machine.phase) {
     SessionPhase.selfChecking => 'selfcheck',
     SessionPhase.scanning ||
@@ -348,8 +352,9 @@ class ProvisioningController extends ChangeNotifier {
       onStep('reading capabilities');
       capabilities = await session.fetchCapabilities();
       _machine.capabilitiesRead();
-      // 断连检测从这里开始：连接/读能力阶段的失败已有各自的错误页，
-      // 配置会话期的断链才走 linkLost 弹窗路径。
+      // Link-loss detection starts here: failures during connect or the
+      // capabilities read already have their own error pages; only a drop
+      // inside the config session takes the linkLost modal path.
       _subscribeLink(deviceId);
     } on ProvSessionException catch (error) {
       if (_machine.phase == SessionPhase.readingCapabilities) {
@@ -387,9 +392,10 @@ class ProvisioningController extends ChangeNotifier {
     await selectCandidate(candidate);
   }
 
-  // ---- 断连检测（配置会话期）----
+  // ---- link-loss detection (config session) ----
 
-  /// 订阅链路状态（连接建立后调用；先退订旧订阅，重连后复用）。
+  /// Subscribe to link state (called once the link is up; cancels any
+  /// previous subscription first — reused after reconnect).
   void _subscribeLink(String deviceId) {
     _linkSub?.cancel();
     _linkSub = _linkEvents(deviceId).listen(
@@ -397,13 +403,16 @@ class ProvisioningController extends ChangeNotifier {
         if (!connected) _onLinkDropped();
       },
       onError: (Object _) {
-        // 链路状态上报尽力而为：监听失败不阻断会话。
+        // Link-state reporting is best-effort: a failing stream never
+        // blocks the session.
       },
     );
   }
 
-  /// 链路断开：只对配置会话期相位生效（自残式断开——会话收尾/清理——
-  /// 相位已离开本组，事件自然被过滤）。编辑中的草稿全保留。
+  /// Link dropped: only reacts inside the config-session phases (a
+  /// self-inflicted disconnect — session close / cleanup — has already
+  /// left that group, so the event filters itself out). Drafts being
+  /// edited are all kept.
   void _onLinkDropped() {
     switch (_machine.phase) {
       case SessionPhase.choosingSections:
@@ -424,10 +433,12 @@ class ProvisioningController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// 断连弹窗的「重新连接」：与首次选择同一条链（配对 → 通道 → 会话 →
-  /// device.info/能力）。成功则原位恢复编辑（草稿未动）；失败停在弹窗
-  /// 并给出重试提示。设备须处于唤醒状态——NE101 配置窗口约 1 分钟后
-  /// 自动静睡，烧穿窗口是断连的最常见原因，文案负责引导重新唤醒。
+  /// The modal's "reconnect": same chain as the initial selection
+  /// (pair -> channel -> session -> device.info/capabilities). Success
+  /// restores editing in place (drafts untouched); failure stays on the
+  /// modal with a retry note. The device must be awake — the NE101 config
+  /// window auto-sleeps after ~1 minute, so a burnt-out window is the most
+  /// common drop cause and the copy must guide the wake-up.
   Future<void> reconnectLink() async {
     if (_machine.phase != SessionPhase.linkLost || _reconnecting) return;
     final candidate = selectedCandidate;
@@ -448,7 +459,8 @@ class ProvisioningController extends ChangeNotifier {
       _subscribeLink(deviceId);
       _machine.linkRestored(editing: editingSections.isNotEmpty);
     } catch (error) {
-      // 失败链路半开也要收干净，弹窗保留、可再次尝试。
+      // A half-open failed link must still be cleaned up; the modal
+      // stays and another attempt is allowed.
       await _releaseLink();
       linkReconnectFailed = true;
       _machine.reportProblem('link_reconnect_failed', '$error');
@@ -466,8 +478,9 @@ class ProvisioningController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// 空结果/结果页重扫：清理链路与源，回扫描循环重新开始。linkLost 的
-  /// 「返回设备列表」也从这里走——编辑轮与草稿一并丢弃。
+  /// Rescan from the empty/results page: releases link and sources, back
+  /// to the scan loop. linkLost's "back to device list" exits here too —
+  /// the editing round and drafts are dropped with it.
   Future<void> rescan() async {
     await _machine.cleanup();
     _clearEditingState();
@@ -685,8 +698,10 @@ class ProvisioningController extends ChangeNotifier {
     notifyListeners();
     try {
       deliveryResult = await session.setConfig(payload.payload);
-      // 断连可能发生在下发在途：linkLost 已接管界面，迟到结果按
-      // 当前相位丢弃（幂等重发覆盖一切，收据在重发成功后补记）。
+      // The drop may land while config.set is in flight: linkLost owns
+      // the UI by then, so the late result is discarded per the current
+      // phase (idempotent redelivery overwrites everything; the receipt
+      // is recorded after the redo succeeds).
       if (_machine.phase != SessionPhase.delivering) {
         deliveryResult = null;
         return;
@@ -936,8 +951,9 @@ class ProvisioningController extends ChangeNotifier {
     _scanTimer = null;
   }
 
-  /// 断开链路并释放会话资源（幂等，供机器错误/清理路径调用）。同时停掉
-  /// 链路监听——主动断开不该再触发 linkLost。
+  /// Drops the link and releases session resources (idempotent; used by
+  /// the machine's error/cleanup paths). Also stops the link listener —
+  /// a self-initiated disconnect must not raise linkLost.
   Future<void> _releaseLink() async {
     _linkSub?.cancel();
     _linkSub = null;
