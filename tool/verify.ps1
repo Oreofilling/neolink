@@ -29,6 +29,11 @@ $results = New-Object System.Collections.Generic.List[object]
 $script:failed = $false
 $script:detectOut = ''
 
+# Detached runs (WMI/scheduled task launch) may lose their stdout pipe;
+# the transcript is the record that survives any launch weirdness.
+$transcript = Join-Path $env:TEMP 'neolink-verify.log'
+Start-Transcript -Path $transcript -Append | Out-Null
+
 function Invoke-Step {
   param([string]$Name, [scriptblock]$Body)
   Write-Host ""
@@ -150,6 +155,7 @@ Set-Content -Path $file -Value ($lines -join "`r`n") -Encoding ASCII
 Write-Host ""
 Write-Host "Gate record: $file"
 Write-Host ""
+Stop-Transcript | Out-Null
 if ($script:failed) {
   Write-Host "VERIFY: FAIL" -ForegroundColor Red
   exit 1
