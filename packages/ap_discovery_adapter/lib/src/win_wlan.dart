@@ -63,6 +63,8 @@ final class _WlanInterfaceInfo extends Struct {
 
 final class _WlanInterfaceInfoList extends Struct {
   @Uint32()
+  external int totalSize;
+  @Uint32()
   external int numberOfItems;
   @Uint32()
   external int index;
@@ -77,9 +79,10 @@ final class _Dot11Ssid extends Struct {
   external Array<Uint8> ssid;
 }
 
+// Field order follows wlanapitypes.h exactly: strProfileName first,
+// dwFlags last — a shifted layout reads plausible garbage (the first
+// box smoke crashed on exactly that).
 final class _WlanAvailableNetwork extends Struct {
-  @Uint32()
-  external int flags;
   @Array(256)
   external Array<Uint16> profileName;
   external _Dot11Ssid dot11Ssid;
@@ -106,14 +109,14 @@ final class _WlanAvailableNetwork extends Struct {
   @Uint32()
   external int cipherAlgorithm;
   @Uint32()
-  external int reserved;
+  external int flags;
 }
 
 final class _WlanAvailableNetworkList extends Struct {
   @Uint32()
-  external int numberOfItems;
+  external int totalSize;
   @Uint32()
-  external int index;
+  external int numberOfItems;
   @Array(1)
   external Array<Pointer<_WlanAvailableNetwork>> network;
 }
