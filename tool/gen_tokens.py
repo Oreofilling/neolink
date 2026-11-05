@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""再生成 packages/neolink_ui/lib/src/tokens.dart。
+"""RETIRED (v7d design pass, 2026-11): tokens.dart is hand-maintained now.
+Running this script would clobber the hand-tuned v7d token set — kept only
+for history. Source of truth: docs/design-rules.md + tokens.dart itself.
+
+Legacy description: 再生成 packages/neolink_ui/lib/src/tokens.dart。
 
 用法:
   python3 tool/gen_tokens.py [原型CSS路径] [输出dart路径]
