@@ -12,7 +12,6 @@ import 'package:ap_discovery_adapter/ap_discovery_adapter.dart';
 import 'package:ble_universal/ble_universal.dart';
 import 'package:communication_domain/communication_domain.dart';
 import 'package:ct_disc_adapter/ct_disc_adapter.dart';
-import 'package:discovery_domain/discovery_domain.dart';
 import 'package:flutter/foundation.dart';
 // 能力侧的 ConfigSection 与 communication_domain 节类型重名：控制器
 // 语境里 ConfigSection 一律指节草稿，能力节只经 capabilities.sections 迭代。

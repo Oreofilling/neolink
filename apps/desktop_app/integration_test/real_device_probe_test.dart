@@ -27,7 +27,6 @@ import 'package:ble_universal/ble_universal.dart';
 import 'package:communication_domain/communication_domain.dart';
 import 'package:desktop_app/provisioning/provisioning_controller.dart';
 import 'package:desktop_app/provisioning/section_editing.dart';
-import 'package:discovery_domain/discovery_domain.dart';
 
 const _probeSsid = 'neolink-probe';
 
