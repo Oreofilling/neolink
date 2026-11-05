@@ -77,13 +77,19 @@ class _AppShellState extends State<AppShell> {
     }
   }
 
+  /// The scan family spans the whole discover loop, including the two
+  /// transient phases: `cleaning` always lands back in scanning (it is the
+  /// rescan path), so a guide open during a rescan must NOT be treated as
+  /// orphaned — snapping it shut mid-walk made the empty-page "add by code"
+  /// entry look dead (the guide opened and closed within one frame).
   static bool _isScanFamilyPhase(SessionPhase phase) => switch (phase) {
     SessionPhase.selfChecking ||
     SessionPhase.scanning ||
     SessionPhase.resultsAvailable ||
     SessionPhase.scanEmpty ||
     SessionPhase.guideScanning ||
-    SessionPhase.showingGuide => true,
+    SessionPhase.showingGuide ||
+    SessionPhase.cleaning => true,
     _ => false,
   };
 

@@ -166,6 +166,8 @@ void main() {
 
     await pumpApp(tester, controller);
     await settle(tester); // 进入扫描
+    // 扫描中（尚无候选）底部也常驻「扫码添加」入口，不必等窗口烧穿。
+    expect(find.text('未发现您的设备？'), findsOneWidget);
     await tester.pump(const Duration(seconds: 21)); // 超时触发
 
     expect(controller.phase, SessionPhase.scanEmpty);
@@ -179,6 +181,34 @@ void main() {
     // 无候选则二次超时仍收敛回空态（也保证测试收尾无挂起定时器）。
     await tester.pump(const Duration(seconds: 21));
     expect(controller.phase, SessionPhase.scanEmpty);
+  });
+
+  testWidgets('空态页进扫码指引：指引保持打开且后台持续重开扫描', (tester) async {
+    final source = FakeSource();
+    final device = FakeCtDevice();
+    final controller = wiredController(source, device);
+    addTearDown(source.close);
+    addTearDown(device.close);
+
+    await pumpApp(tester, controller);
+    await settle(tester);
+    await tester.pump(const Duration(seconds: 21)); // 超时 → 空态页
+    expect(controller.phase, SessionPhase.scanEmpty);
+
+    await tester.tap(find.text('扫码添加设备'));
+    await settle(tester); // post-frame 重扫：scanEmpty → cleaning → scanning
+    expect(controller.phase, SessionPhase.scanning);
+    // 回归：cleaning 相位不得把指引弹回（此前一帧闪退，点击看似无反应）。
+    expect(find.text('唤醒设备'), findsNWidgets(2)); // 步骤头 + 卡片标题
+
+    // 指引打开期间窗口再次烧穿 → 自动重开扫描（设备唤醒晚也不悬停）。
+    await tester.pump(const Duration(seconds: 21));
+    await settle(tester, 2);
+    expect(controller.phase, SessionPhase.scanning);
+    expect(find.text('唤醒设备'), findsNWidgets(2)); // 步骤头 + 卡片标题
+
+    // 结束在 scanning：扫描/清扫定时器仍挂着，测试体内同步 dispose。
+    controller.dispose();
   });
 
   testWidgets('M3 PoE: ethernet readonly row carries the PoE badge', (tester) async {

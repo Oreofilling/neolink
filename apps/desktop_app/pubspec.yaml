@@ -15,9 +15,13 @@ dependencies:
   # zxing-cpp. `camera` is the cross-platform facade whose API desktop_app
   # uses directly; recent facade versions ship no Windows implementation,
   # so the federated camera_windows (implements: camera) is declared too.
+  # file_selector is the upload mode's file dialog; its Windows impl is
+  # already in the build (flutter_zxing pulls it in), the facade is pure
+  # Dart over the same platform interface.
   camera: ^0.11.0
   camera_windows: ^0.3.0+1
   flutter_zxing: ^1.8.2
+  file_selector: ^1.0.3
   neolink_ui:
     path: ../../packages/neolink_ui
   ct_prov_core:

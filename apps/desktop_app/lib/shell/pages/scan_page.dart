@@ -81,13 +81,14 @@ class ScanPage extends StatelessWidget {
                 const SizedBox(height: 16),
                 if (candidates.isEmpty && scanning)
                   _scanningPanel(c, l)
-                else ...[
+                else
                   _deviceTable(c, l, candidates),
-                  if (candidates.isNotEmpty) ...[
-                    const SizedBox(height: 10),
-                    _noHitBar(c, l),
-                  ],
-                ],
+                // The QR entry is a permanent fixture at the bottom — the
+                // user decides to add by code while the sweep is still
+                // running, not only after the window burnt out on a table
+                // full of rows.
+                const SizedBox(height: 10),
+                _noHitBar(c, l),
               ],
             ),
           ),

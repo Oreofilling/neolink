@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:discovery_domain/discovery_domain.dart';
 import 'package:flutter/material.dart';
 import 'package:neolink_ui/neolink_ui.dart';
@@ -9,11 +11,12 @@ import '../../provisioning/provisioning_controller.dart';
 import '../widgets/qr_camera_scanner.dart';
 
 /// QR add-device guide (v6): a UI-only three-step walk — wake the device,
-/// scan or type the last 6 characters of its ID, then connect to the located
-/// row. Step 2 pairs the camera scanner (stage 3) with manual input as the
-/// always-available fallback. The session
-/// machine is untouched; step 3 highlights the matching candidate and hands
-/// off to the normal connect chain.
+/// read its ID from the QR code, then connect to the located row. Step 2
+/// offers two ways to obtain the code: live camera scanning and picking an
+/// image, both feeding the same strict parser; machines without a camera
+/// land on the upload path. The session machine is only touched to keep a
+/// scan window armed behind the walkthrough; step 3 highlights the
+/// matching candidate and hands off to the normal connect chain.
 class QrGuidePage extends StatefulWidget {
   const QrGuidePage({
     super.key,
@@ -21,6 +24,7 @@ class QrGuidePage extends StatefulWidget {
     required this.onExit,
     this.qrFrameSource,
     this.qrDecoder,
+    this.qrImagePicker,
   });
 
   final ProvisioningController controller;
@@ -31,14 +35,20 @@ class QrGuidePage extends StatefulWidget {
   final QrFrameSource? qrFrameSource;
   final QrImageDecoder? qrDecoder;
 
+  /// Test injection for the upload mode's file picker.
+  final QrImagePicker? qrImagePicker;
+
   @override
   State<QrGuidePage> createState() => _QrGuidePageState();
 }
 
+/// How step 2 obtains the QR image.
+enum _QrInputMode { camera, image }
+
 class _QrGuidePageState extends State<QrGuidePage> {
-  final TextEditingController _idController = TextEditingController();
   int _step = 0;
-  bool _showInvalid = false;
+  _QrInputMode _mode = _QrInputMode.camera;
+  bool _uploadInvalid = false;
   String _entered = '';
 
   ProvisioningController get controller => widget.controller;
@@ -46,18 +56,33 @@ class _QrGuidePageState extends State<QrGuidePage> {
   @override
   void initState() {
     super.initState();
-    // Entered from the empty page: the scan window has already burnt out and
-    // the source is stopped — restart it so the waking device shows up in
-    // step 3 without another tap.
+    controller.addListener(_onControllerChanged);
+    // Entered from the empty page: the scan window has already burnt out
+    // and the source is stopped — restart it so the waking device shows up
+    // in step 3 without another tap.
     if (controller.phase == SessionPhase.scanEmpty) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => controller.rescan());
+      WidgetsBinding.instance.addPostFrameCallback((_) => _rearmScan());
     }
   }
 
   @override
   void dispose() {
-    _idController.dispose();
+    controller.removeListener(_onControllerChanged);
     super.dispose();
+  }
+
+  /// A walkthrough needs a live scan window behind it: the device wakes on
+  /// the user's schedule (a ~60s config window), not the scan timeout's.
+  /// Whenever the window burns out while the guide is open, restart it —
+  /// the shell keeps this page mounted across the transient cleaning phase
+  /// (cleaning belongs to the scan family).
+  void _onControllerChanged() {
+    if (controller.phase == SessionPhase.scanEmpty) _rearmScan();
+  }
+
+  void _rearmScan() {
+    if (!mounted || controller.phase != SessionPhase.scanEmpty) return;
+    unawaited(controller.rescan());
   }
 
   DiscoveryCandidate? get _match {
@@ -75,21 +100,28 @@ class _QrGuidePageState extends State<QrGuidePage> {
     }
   });
 
-  void _submitId() {
-    final value = _idController.text.trim().toUpperCase();
-    final valid = RegExp(r'^[0-9A-F]{6}$').hasMatch(value);
-    setState(() => _showInvalid = !valid);
-    if (!valid) return;
-    _entered = value;
+  void _onQrDecoded(DeviceQrUri uri) {
+    // A spec-conforming QR is authoritative for the suffix — no typing, no
+    // typos; model/channels stay hints for the table.
+    _entered = uri.macSuffix;
     _goStep(2);
   }
 
-  void _onQrDecoded(DeviceQrUri uri) {
-    // A spec-conforming QR is authoritative for the suffix — same as typing
-    // it by hand, minus the typos; model/channels stay hints for the table.
-    _idController.text = uri.macSuffix;
-    _entered = uri.macSuffix;
-    _goStep(2);
+  /// Upload mode: pick an image, run it through the same decoder + parser
+  /// as the camera loop. A cancelled dialog is not an error; an unreadable
+  /// or non-conforming image shows a quiet inline hint and stays on step.
+  Future<void> _pickAndDecode() async {
+    setState(() => _uploadInvalid = false);
+    final path = await (widget.qrImagePicker ?? fileQrImagePicker)();
+    if (!mounted || path == null) return;
+    final text = await (widget.qrDecoder ?? zxingQrDecoder)(path);
+    if (!mounted) return;
+    final uri = text == null ? null : DeviceQrUri.tryParse(text);
+    if (uri == null) {
+      setState(() => _uploadInvalid = true);
+      return;
+    }
+    _onQrDecoded(uri);
   }
 
   void _connectMatch(DiscoveryCandidate candidate) {
@@ -142,24 +174,21 @@ class _QrGuidePageState extends State<QrGuidePage> {
                   const SizedBox(height: 16),
                   NLButton(label: l.qrNext, onPressed: () => _goStep(1)),
                 ] else if (_step == 1) ...[
-                  QrCameraScanner(
-                    frameSource: widget.qrFrameSource,
-                    decoder: widget.qrDecoder,
-                    onDecoded: _onQrDecoded,
-                  ),
+                  _modeToggle(l),
+                  const SizedBox(height: 12),
+                  if (_mode == _QrInputMode.camera)
+                    QrCameraScanner(
+                      frameSource: widget.qrFrameSource,
+                      decoder: widget.qrDecoder,
+                      onDecoded: _onQrDecoded,
+                    )
+                  else
+                    _uploadCard(c, l),
                   const SizedBox(height: 16),
-                  _idCard(c, l),
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      NLButton(
-                        label: l.qrPrev,
-                        variant: NLButtonVariant.secondary,
-                        onPressed: () => _goStep(0),
-                      ),
-                      const SizedBox(width: 8),
-                      NLButton(label: l.qrNext, onPressed: _submitId),
-                    ],
+                  NLButton(
+                    label: l.qrPrev,
+                    variant: NLButtonVariant.secondary,
+                    onPressed: () => _goStep(0),
                   ),
                 ] else ...[
                   _matchCard(c, l),
@@ -308,7 +337,42 @@ class _QrGuidePageState extends State<QrGuidePage> {
     );
   }
 
-  Widget _idCard(NLColors c, AppLocalizations l) {
+  /// Two exclusive ways to obtain the code; the active one is filled.
+  Widget _modeToggle(AppLocalizations l) {
+    return Row(
+      children: [
+        Expanded(
+          child: NLButton(
+            label: l.qrModeCamera,
+            icon: Icons.photo_camera_outlined,
+            variant: _mode == _QrInputMode.camera
+                ? NLButtonVariant.primary
+                : NLButtonVariant.secondary,
+            onPressed: () => setState(() {
+              _mode = _QrInputMode.camera;
+              _uploadInvalid = false;
+            }),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: NLButton(
+            label: l.qrModeImage,
+            icon: Icons.image_outlined,
+            variant: _mode == _QrInputMode.image
+                ? NLButtonVariant.primary
+                : NLButtonVariant.secondary,
+            onPressed: () => setState(() {
+              _mode = _QrInputMode.image;
+              _uploadInvalid = false;
+            }),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _uploadCard(NLColors c, AppLocalizations l) {
     return NLCard(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -316,48 +380,35 @@ class _QrGuidePageState extends State<QrGuidePage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              l.qrStep2,
+              l.qrModeImage,
               style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 6),
             Text(
-              l.qrInputHint,
+              l.qrUploadHint,
               style: TextStyle(fontSize: 12, color: c.mutedForeground),
             ),
             const SizedBox(height: 12),
-            TextField(
-              controller: _idController,
-              maxLength: 6,
-              textCapitalization: TextCapitalization.characters,
-              style: const TextStyle(fontSize: 16, fontFamily: 'JetBrains Mono'),
-              decoration: InputDecoration(
-                isDense: true,
-                counterText: '',
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 10,
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(NLRadii.radiusMd),
-                  borderSide: BorderSide(
-                    color: _showInvalid ? c.destructive : c.border,
-                  ),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(NLRadii.radiusMd),
-                  borderSide: BorderSide(
-                    color: _showInvalid ? c.destructive : c.foreground,
-                  ),
-                ),
-              ),
-              onSubmitted: (_) => _submitId(),
+            NLButton(
+              label: l.qrUploadButton,
+              icon: Icons.upload_file_outlined,
+              variant: NLButtonVariant.secondary,
+              onPressed: _pickAndDecode,
             ),
-            if (_showInvalid)
+            if (_uploadInvalid)
               Padding(
-                padding: const EdgeInsets.only(top: 6),
-                child: Text(
-                  l.qrInputInvalid,
-                  style: TextStyle(fontSize: 11, color: c.destructive),
+                padding: const EdgeInsets.only(top: 8),
+                child: Row(
+                  children: [
+                    Icon(Icons.info_outline, size: 14, color: c.destructive),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        l.qrUploadInvalid,
+                        style: TextStyle(fontSize: 11, color: c.destructive),
+                      ),
+                    ),
+                  ],
                 ),
               ),
           ],

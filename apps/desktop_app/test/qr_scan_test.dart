@@ -76,6 +76,7 @@ Future<void> _pumpGuide(
   ProvisioningController controller, {
   QrFrameSource? source,
   QrImageDecoder? decoder,
+  QrImagePicker? picker,
 }) async {
   tester.platformDispatcher.localesTestValue = const [Locale('zh')];
   await tester.pumpWidget(
@@ -90,6 +91,7 @@ Future<void> _pumpGuide(
           onExit: () {},
           qrFrameSource: source,
           qrDecoder: decoder,
+          qrImagePicker: picker,
         ),
       ),
     ),
@@ -99,8 +101,37 @@ Future<void> _pumpGuide(
   unawaited(controller.runSelfCheck());
 }
 
+/// Step 2's upload mode end-to-end: switch mode, pick, expect the suffix
+/// focused (or, with [invalid], the inline hint and no focus). The picker
+/// and decoder were already injected through [_pumpGuide].
+Future<void> _uploadFlow(
+  WidgetTester tester,
+  ProvisioningController controller, {
+  required bool invalid,
+}) async {
+  final modeButton = find.text('上传图片');
+  await tester.ensureVisible(modeButton);
+  await _settle(tester, 2);
+  await tester.tap(modeButton);
+  await _settle(tester, 2);
+
+  final choose = find.text('选择图片');
+  await tester.ensureVisible(choose);
+  await _settle(tester, 2);
+  await tester.tap(choose);
+  await _settle(tester);
+
+  if (invalid) {
+    expect(find.text('未识别到有效的设备二维码，请换一张图片'), findsOneWidget);
+    expect(controller.qrFocusSuffix, isNull);
+  } else {
+    expect(controller.qrFocusSuffix, 'A1B2C3');
+    expect(find.text('A1B2C3'), findsWidgets);
+  }
+}
+
 void main() {
-  testWidgets('scan decodes a spec QR, fills the ID and locates the row', (
+  testWidgets('camera scan decodes a spec QR and locates the row', (
     tester,
   ) async {
     // Arrange: one scripted frame that "decodes" to the spec example.
@@ -135,38 +166,61 @@ void main() {
     controller.dispose();
   });
 
-  testWidgets('no camera falls back to manual input end-to-end', (tester) async {
-    // Arrange: the source reports a machine without any camera.
+  testWidgets('no camera falls back to uploading a QR image', (tester) async {
+    // Arrange: a machine without a camera; the "picked" file decodes to
+    // the spec example.
     final bleSource = FakeSource();
     final controller = _wiredController(bleSource);
     final qrSource = FakeQrSource(openError: QrNoCameraException());
-    Future<String?> decoder(String path) async => null;
+    Future<String?> decoder(String path) async =>
+        path == 'picked.png' ? _kValidUri : null;
     addTearDown(bleSource.close);
 
-    await _pumpGuide(tester, controller, source: qrSource, decoder: decoder);
+    await _pumpGuide(tester, controller,
+        source: qrSource,
+        decoder: decoder,
+        picker: () async => 'picked.png');
     await _settle(tester);
 
     await tester.tap(find.text('下一步'));
     await _settle(tester);
 
     // Assert: the quiet no-camera hint appears, capture never runs.
-    expect(find.text('未检测到摄像头，可直接手动输入下方编号'), findsOneWidget);
+    expect(find.text('未检测到摄像头，可切换到上传图片识别'), findsOneWidget);
     expect(qrSource.captures, 0);
 
-    // Act: type the suffix by hand (lowercase on purpose — submit
-    // normalizes) and advance. The button row sits below the fold once the
-    // scanner card mounts, so scroll it in first.
-    await tester.enterText(find.byType(TextField), 'a1b2c3');
-    final next = find.text('下一步');
-    await tester.ensureVisible(next);
-    await _settle(tester, 4);
-    await tester.tap(next);
-    await _settle(tester);
-
-    expect(controller.qrFocusSuffix, 'A1B2C3');
-    expect(find.text('A1B2C3'), findsWidgets);
+    // Act: upload mode, pick a photo — same parser, same auto-advance.
+    await _uploadFlow(tester, controller, invalid: false);
 
     // Same timer discipline as above: dispose before the body returns.
+    controller.dispose();
+  });
+
+  testWidgets('unreadable upload stays on the step with an inline hint', (
+    tester,
+  ) async {
+    // Arrange: the picked photo carries no decodable QR.
+    final bleSource = FakeSource();
+    final controller = _wiredController(bleSource);
+    final qrSource = FakeQrSource(openError: QrNoCameraException());
+    Future<String?> decoder(String path) async => null;
+    addTearDown(bleSource.close);
+
+    await _pumpGuide(tester, controller,
+        source: qrSource,
+        decoder: decoder,
+        picker: () async => 'blurry.png');
+    await _settle(tester);
+
+    await tester.tap(find.text('下一步'));
+    await _settle(tester);
+
+    // Act: upload a photo that does not decode to a spec QR.
+    await _uploadFlow(tester, controller, invalid: true);
+
+    // Still on the input step — the mode toggle stays reachable.
+    expect(find.text('拍照识别'), findsOneWidget);
+
     controller.dispose();
   });
 }

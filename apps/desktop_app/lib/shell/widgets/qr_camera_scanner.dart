@@ -5,16 +5,18 @@
 /// picture every ~450 ms, `flutter_zxing` decodes the still via FFI
 /// zxing-cpp, and [DeviceQrUri.tryParse] validates the text against the
 /// ctdev:// grammar. Anything that fails to parse is simply another empty
-/// frame — the manual suffix input below stays the always-available path.
+/// frame — the guide's upload mode (below the camera card) stays the
+/// always-available fallback for machines without a camera.
 ///
 /// The frame source and decoder are injectable so widget tests drive the
 /// loop without a physical camera; the production wiring lives here too
-/// ([CameraQrFrameSource], [zxingQrDecoder]).
+/// ([CameraQrFrameSource], [zxingQrDecoder], [fileQrImagePicker]).
 library;
 
 import 'dart:async';
 
 import 'package:camera/camera.dart';
+import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_zxing/flutter_zxing.dart';
 import 'package:neolink_ui/neolink_ui.dart';
@@ -51,6 +53,10 @@ class QrNoCameraException implements Exception {
 /// Decodes an image file to raw text (any barcode), or `null`.
 typedef QrImageDecoder = Future<String?> Function(String imagePath);
 
+/// Picks one image file for the upload mode, or `null` when the user
+/// cancels the dialog (cancel is not an error).
+typedef QrImagePicker = Future<String?> Function();
+
 /// Production decoder: zxing-cpp over the captured still, QR-only.
 Future<String?> zxingQrDecoder(String imagePath) async {
   try {
@@ -63,6 +69,18 @@ Future<String?> zxingQrDecoder(String imagePath) async {
     // Native-lib hiccup on one frame is not fatal — same as an empty frame.
     return null;
   }
+}
+
+/// Production picker: the platform file dialog limited to common image
+/// types. `file_selector_windows` is already in the plugin build; the
+/// facade is pure Dart over the same platform interface.
+Future<String?> fileQrImagePicker() async {
+  const images = XTypeGroup(
+    label: 'Images',
+    extensions: ['png', 'jpg', 'jpeg', 'webp', 'bmp', 'gif'],
+  );
+  final file = await openFile(acceptedTypeGroups: [images]);
+  return file?.path;
 }
 
 /// Production frame source: first available camera, preview + stills.
