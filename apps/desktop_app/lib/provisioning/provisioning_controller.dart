@@ -12,11 +12,13 @@ import 'package:ap_discovery_adapter/ap_discovery_adapter.dart';
 import 'package:ble_universal/ble_universal.dart';
 import 'package:communication_domain/communication_domain.dart';
 import 'package:ct_disc_adapter/ct_disc_adapter.dart';
+import 'package:ct_prov_core/ct_prov_core.dart' show ProvTransport;
 import 'package:flutter/foundation.dart';
 // 能力侧的 ConfigSection 与 communication_domain 节类型重名：控制器
 // 语境里 ConfigSection 一律指节草稿，能力节只经 capabilities.sections 迭代。
 import 'package:provisioning_session/provisioning_session.dart'
     hide ConfigSection;
+import 'package:softap_transport/softap_transport.dart';
 
 import '../services/environment_probe.dart';
 import 'section_editing.dart';
@@ -33,6 +35,8 @@ class ProvisioningController extends ChangeNotifier {
     )?
     connectChannel,
     Stream<bool> Function(String deviceId)? linkEvents,
+    ApJoiner? apJoiner,
+    ProvTransport Function()? apTransportFactory,
     this.scanTimeout = const Duration(seconds: 20),
     this.ttl = const Duration(seconds: 12),
     this.selfCheckHold = const Duration(seconds: 5),
@@ -54,7 +58,13 @@ class ProvisioningController extends ChangeNotifier {
            connectChannel ??
            ((deviceId, onStep) =>
                UniversalCtGattChannel.open(deviceId, onStep: onStep)),
-       _linkEvents = linkEvents ?? universalLinkEvents {
+       _linkEvents = linkEvents ?? universalLinkEvents,
+       // M5 softAP join chain: default joiner is a lazy no-op off Windows
+       // (methods refuse early), so constructing here is always safe.
+       _apJoiner = apJoiner ?? WinWlanJoiner(),
+       // Tests drive the softAP session over a fake transport; production
+       // always builds the real HTTP transport.
+       _apTransportFactory = apTransportFactory {
     _machine = ProvisioningMachine(
       onStopSources: _stopSources,
       onReleaseLink: _releaseLink,
@@ -87,6 +97,8 @@ class ProvisioningController extends ChangeNotifier {
   )
   _connect;
   final Stream<bool> Function(String deviceId) _linkEvents;
+  final ApJoiner _apJoiner;
+  final ProvTransport Function()? _apTransportFactory;
 
   late final ProvisioningMachine _machine;
   late final StreamSubscription<SessionPhase> _phaseSub;
@@ -104,6 +116,25 @@ class ProvisioningController extends ChangeNotifier {
 
   CtGattChannel? _channel;
   CtSessionClient? _session;
+
+  /// softAP 链状态：加入设备热点前的原 Wi-Fi 快照（_apRestoreValid 标记
+  /// 本次会话是否真的动过 radio——没加入就不该恢复）。
+  WlanRestorePoint? _apRestore;
+  bool _apRestoreValid = false;
+
+  /// Whether the softAP join chain is wired (row actions + dialog gate).
+  bool get apJoinAvailable => true;
+
+  /// Current Wi-Fi SSID for the pre-join dialog copy; null when the
+  /// machine is not connected (or the joiner cannot tell).
+  Future<String?> currentWifiSsid() async {
+    try {
+      final point = await _apJoiner.capture();
+      return (point == null || point.ssid.isEmpty) ? null : point.ssid;
+    } catch (_) {
+      return null;
+    }
+  }
 
   /// Link-loss subscription (attached once capabilities are read;
   /// cancelled on drop/release).
@@ -371,14 +402,21 @@ class ProvisioningController extends ChangeNotifier {
       notifyListeners();
     }
 
-    // Channel guard: only the BLE channel has a connect chain today. An
-    // AP/CT-Disc-only row must fail with a stable reason instead of a
-    // misleading GATT attempt (the softAP chain lands in its own round).
-    if (!candidate.channels.contains(DiscoveryChannel.ble)) {
+    // Channel guard: BLE and softAP carry connect chains; a CT-Disc-only
+    // row must fail with a stable reason instead of a misleading attempt
+    // (its transport is a separate protocol face, still future work).
+    final viaBle = candidate.channels.contains(DiscoveryChannel.ble);
+    final viaAp = !viaBle &&
+        candidate.channels.contains(DiscoveryChannel.accessPoint);
+    if (!viaBle && !viaAp) {
       if (_machine.phase == SessionPhase.connecting) {
         await _machine.failConnection('channel_unsupported', null);
         notifyListeners();
       }
+      return;
+    }
+    if (viaAp) {
+      await _connectChainOverSoftAp(candidate, onStep);
       return;
     }
     // Merged rows keep the first-seen candidateId (possibly an AP id); the
@@ -431,6 +469,87 @@ class ProvisioningController extends ChangeNotifier {
       notifyListeners();
     }
   }
+
+  /// softAP 连接链：记住当前 Wi-Fi → wlanapi 加入设备热点（开放网络临时
+  /// profile）→ HTTP 传输 → 与 BLE 同一套会话/能力读取。链路释放
+  /// （含恢复原 Wi-Fi）统一走 [_releaseLink]，与机器的错误/清理钩子同点。
+  Future<void> _connectChainOverSoftAp(
+    DiscoveryCandidate candidate,
+    void Function(String step) onStep,
+  ) async {
+    final ssid = apSsidFromCandidateId(candidate.candidateId);
+    if (ssid == null) {
+      if (_machine.phase == SessionPhase.connecting) {
+        await _machine.failConnection('channel_unsupported', null);
+      }
+      notifyListeners();
+      return;
+    }
+    ProvTransport? transport;
+    try {
+      onStep('joining wlan');
+      // Fresh snapshot each chain run (retry after a restored failure sees
+      // the same network, but truth beats caching). Reconnect after a drop
+      // reuses the point captured here — mid-drop capture would snapshot
+      // the broken state instead.
+      _apRestore = await _apJoiner.capture();
+      _apRestoreValid = true;
+      await _apJoiner.join(
+        ssid,
+        gatewayHost: kDefaultSoftapEndpoint.host,
+        gatewayPort: kDefaultSoftapEndpoint.port,
+        onStep: onStep,
+      );
+      if (_machine.phase != SessionPhase.connecting) return;
+      onStep('device link');
+      transport = _apTransportFactory?.call() ?? SoftapCtTransport();
+      final session = CtSessionClient.overTransport(transport);
+      _session = session;
+      _machine.transportReady();
+
+      // 第二段与 BLE 相同：会话 → device.info → capabilities。
+      try {
+        await session.open();
+        if (_machine.phase != SessionPhase.readingCapabilities) return;
+        onStep('reading device info');
+        deviceInfo = await session.fetchDeviceInfo();
+        onStep('reading capabilities');
+        capabilities = await session.fetchCapabilities();
+        _machine.capabilitiesRead();
+        // softAP has no push link-state stream: drops surface as
+        // ap_unreachable from the ops themselves (see _isApLinkDrop).
+      } on ProvSessionException catch (error) {
+        if (_machine.phase == SessionPhase.readingCapabilities) {
+          await _machine.failCapabilities(error.reason, error.message);
+        }
+      } catch (error) {
+        if (_machine.phase == SessionPhase.readingCapabilities) {
+          await _machine.failCapabilities(_apFailureReason(error), '$error');
+        }
+      } finally {
+        notifyListeners();
+      }
+    } on ApJoinException catch (error) {
+      await transport?.close();
+      if (_machine.phase == SessionPhase.connecting) {
+        await _machine.failConnection(error.codeName, error.message);
+      }
+      notifyListeners();
+    } catch (error) {
+      await transport?.close();
+      if (_machine.phase == SessionPhase.connecting) {
+        await _machine.failConnection('connect_failed', '$error');
+      }
+      notifyListeners();
+    }
+  }
+
+  /// softAP capability failures keep the transport's stable codes (e.g.
+  /// ap_unreachable -> "join the device AP first"); everything else is a
+  /// plain capabilities failure.
+  String _apFailureReason(Object error) => error is SoftapTransportException
+      ? error.code
+      : 'capabilities_failed';
 
   /// 连接/能力失败后返回候选列表（候选保留，可直接重选）。
   void switchCandidate() {
@@ -510,16 +629,41 @@ class ProvisioningController extends ChangeNotifier {
     linkReconnectFailed = false;
     notifyListeners();
     try {
-      final deviceId = candidate.candidateId;
-      await _pair(deviceId);
-      final channel = await _connect(deviceId, (_) {});
-      _channel = channel;
-      final session = CtSessionClient(channel);
-      _session = session;
-      await session.open();
-      deviceInfo = await session.fetchDeviceInfo();
-      capabilities = await session.fetchCapabilities();
-      _subscribeLink(deviceId);
+      // 链路按通道重建：BLE 走配对+GATT；softAP 重新加入设备热点（复用
+      // 首连时捕获的恢复点——此刻的 radio 状态不是恢复目标）。
+      if (candidate.channels.contains(DiscoveryChannel.ble)) {
+        final deviceId = _bleDeviceIds[_mergeKeyOf(candidate)] ??
+            candidate.candidateId;
+        await _pair(deviceId);
+        final channel = await _connect(deviceId, (_) {});
+        _channel = channel;
+        final session = CtSessionClient(channel);
+        _session = session;
+        await session.open();
+        deviceInfo = await session.fetchDeviceInfo();
+        capabilities = await session.fetchCapabilities();
+        _subscribeLink(deviceId);
+      } else {
+        final ssid = apSsidFromCandidateId(candidate.candidateId);
+        if (ssid == null) {
+          throw const ApJoinException(kJoinNoInterface, 'not an AP candidate');
+        }
+        await _apJoiner.join(
+          ssid,
+          gatewayHost: kDefaultSoftapEndpoint.host,
+          gatewayPort: kDefaultSoftapEndpoint.port,
+        );
+        // The drop's release already consumed the restore flag while the
+        // captured point stays the true target — re-arm so the eventual
+        // session end still restores the pre-session Wi-Fi.
+        _apRestoreValid = true;
+        final transport = _apTransportFactory?.call() ?? SoftapCtTransport();
+        final session = CtSessionClient.overTransport(transport);
+        _session = session;
+        await session.open();
+        deviceInfo = await session.fetchDeviceInfo();
+        capabilities = await session.fetchCapabilities();
+      }
       _machine.linkRestored(editing: editingSections.isNotEmpty);
     } catch (error) {
       // A half-open failed link must still be cleaned up; the modal
@@ -682,6 +826,11 @@ class ProvisioningController extends ChangeNotifier {
     try {
       stored = await session.getConfig();
     } catch (error) {
+      if (_isApLinkDrop(error)) {
+        prefillDone = true;
+        _onLinkDropped();
+        return;
+      }
       _machine.reportProblem('config_get_failed', '$error');
     }
     prefillDone = true;
@@ -788,6 +937,10 @@ class ProvisioningController extends ChangeNotifier {
       }
     } catch (error) {
       deliveryResult = null;
+      if (_isApLinkDrop(error)) {
+        _onLinkDropped();
+        return;
+      }
       if (_machine.phase == SessionPhase.delivering) {
         _machine.failOperation('config_set_failed', '$error');
       }
@@ -857,6 +1010,10 @@ class ProvisioningController extends ChangeNotifier {
       scanItems = const [];
       scanMore = false;
     } catch (error) {
+      if (_isApLinkDrop(error)) {
+        _onLinkDropped();
+        return;
+      }
       _machine.reportProblem('scan_failed', '$error');
       scanItems = const [];
       scanMore = false;
@@ -1032,7 +1189,30 @@ class ProvisioningController extends ChangeNotifier {
     if (channel is UniversalCtGattChannel) {
       await channel.close();
     }
+    await _releaseSoftAp();
   }
+
+  /// softAP 链收尾：会话 dispose 已关传输；把 radio 还给加入前的 Wi-Fi
+  /// （没有快照或没有 profile 就断开设备热点）。恢复尽力而为——机器
+  /// 钩子要求可重入，恢复失败不得阻断清理流。
+  Future<void> _releaseSoftAp() async {
+    final joined = _apRestoreValid;
+    _apRestoreValid = false;
+    final point = _apRestore;
+    _apRestore = null;
+    if (!joined) return;
+    try {
+      await _apJoiner.restore(point);
+    } catch (error) {
+      debugPrint('softAP wlan restore failed: $error');
+    }
+  }
+
+  /// softAP 会话没有推送式链路状态流：设备 HTTP 不可达（用户走远、设备
+  /// 休眠、系统切网）就是掉线信号，映射到与 BLE 相同的 linkLost 流。
+  bool _isApLinkDrop(Object error) =>
+      error is SoftapTransportException &&
+      error.error == SoftapTransportError.apUnreachable;
 
   @override
   void dispose() {

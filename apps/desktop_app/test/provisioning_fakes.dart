@@ -5,10 +5,12 @@ library;
 import 'dart:async';
 import 'dart:io';
 
+import 'package:ap_discovery_adapter/ap_discovery_adapter.dart';
 import 'package:ble_universal/ble_universal.dart';
 import 'package:ct_disc_adapter/ct_disc_adapter.dart';
 import 'package:ct_prov_core/ct_prov_core.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:softap_transport/softap_transport.dart';
 
 import 'package:desktop_app/services/environment_probe.dart';
 
@@ -434,6 +436,118 @@ DiscoveryCandidate sampleCandidate({
   lastSeen: seen ?? DateTime.now(),
   signal: -58,
 );
+
+/// 可翻转「设备不可达」的假 softAP 传输：信封层直接应答（无分片），
+/// 供 softAP 连接链的控制器/页面测试共用。
+final class FakeApTransport implements ProvTransport {
+  FakeApTransport();
+
+  /// true 时所有请求抛 ap_unreachable（链路掉线信号）。
+  bool dropped = false;
+
+  int requests = 0;
+
+  @override
+  Future<ProvResponse> sendRequest(
+    ProvRequest request, {
+    Duration timeout = const Duration(seconds: 10),
+  }) async {
+    requests++;
+    if (dropped) {
+      throw const SoftapTransportException(
+        SoftapTransportError.apUnreachable,
+        'device gateway did not answer',
+      );
+    }
+    final String op;
+    final Map<String, Object?> data;
+    switch (request.opName) {
+      case 'device.info.get':
+        op = 'device.info.get.result';
+        data = const {
+          'device_name': 'NE101-P_BBC6DC',
+          'serial_number': 'NL24Q4001234',
+          'model': 'NE101',
+          'firmware': 'v0.3.2-dev',
+          'power': ['battery'],
+          'protocol_version': 1,
+        };
+      case 'communication.capabilities.get':
+        op = 'communication.capabilities.get.result';
+        data = const {
+          'sections': [
+            {
+              'name': 'wifi',
+              'kind': 'network',
+              'configurable': true,
+              'scannable': true,
+              'fields': ['ssid', 'password'],
+            },
+          ],
+          'current': {'network': null},
+        };
+      case 'config.get':
+        op = 'config.get.result';
+        data = const {};
+      case 'session.close':
+        op = 'session.close.result';
+        data = const {};
+      default:
+        op = '${request.opName}.result';
+        data = const {};
+    }
+    return ProvResponse(id: request.id, opName: op, ok: true, data: data);
+  }
+
+  @override
+  Future<void> close() async {}
+}
+
+/// 记录调用的假 joiner：capture 固定返回原网快照，join 可注入失败。
+final class FakeApJoiner implements ApJoiner {
+  final joins = <String>[];
+  final restores = <WlanRestorePoint?>[];
+
+  WlanRestorePoint? captureResult = const WlanRestorePoint(
+    ssid: 'TP-LINK-5G',
+    profileName: 'TP-LINK-5G',
+  );
+
+  Object? joinError;
+
+  @override
+  Future<WlanRestorePoint?> capture() async => captureResult;
+
+  @override
+  Future<void> join(
+    String ssid, {
+    Duration? timeout,
+    String gatewayHost = '192.168.1.1',
+    int gatewayPort = 80,
+    void Function(String step)? onStep,
+  }) async {
+    joins.add(ssid);
+    final error = joinError;
+    if (error != null) throw error;
+    onStep?.call('waiting gateway');
+  }
+
+  @override
+  Future<void> restore(WlanRestorePoint? point) async {
+    restores.add(point);
+  }
+}
+
+/// AP-only 候选（legacy SSID 形态，连接链用原始 SSID join）。
+DiscoveryCandidate apCandidate() => DiscoveryCandidate(
+      candidateId: 'ap:NE101-P_BBC6DC',
+      macSuffix: 'BBC6DC',
+      modelHint: 'NE101',
+      channels: const {DiscoveryChannel.accessPoint},
+      provisionable: true,
+      busy: false,
+      lastSeen: DateTime.now(),
+    );
 
 /// 轮询等待异步条件成立（机器与流的事件投递晚于同步相位变化）。
 Future<void> until(

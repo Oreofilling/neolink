@@ -5,8 +5,10 @@ library;
 import 'dart:async';
 import 'dart:io';
 
+import 'package:ap_discovery_adapter/ap_discovery_adapter.dart';
 import 'package:ble_universal/ble_universal.dart';
 import 'package:ct_disc_adapter/ct_disc_adapter.dart';
+import 'package:ct_prov_core/ct_prov_core.dart' show ProvTransport;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:communication_domain/communication_domain.dart';
@@ -28,6 +30,8 @@ ProvisioningController wiredController(
   Duration scanTimeout = const Duration(seconds: 20),
   Duration selfCheckHold = Duration.zero,
   Stream<bool> Function(String deviceId)? linkEvents,
+  ApJoiner? apJoiner,
+  ProvTransport Function()? apTransportFactory,
 }) => ProvisioningController(
   environmentProbe: readyProbe(),
   discoverySource: source,
@@ -36,6 +40,8 @@ ProvisioningController wiredController(
   // Default empty stream: cases not exercising link loss never touch
   // the universal_ble static (no plugin in the test environment).
   linkEvents: linkEvents ?? ((_) => const Stream<bool>.empty()),
+  apJoiner: apJoiner,
+  apTransportFactory: apTransportFactory,
   scanTimeout: scanTimeout,
   selfCheckHold: selfCheckHold,
 );
@@ -141,7 +147,7 @@ void main() {
     expect(controller.phase, SessionPhase.scanEmpty);
   });
 
-  testWidgets('AP-only候选显示通道与暂不支持连接（M5）', (tester) async {
+  testWidgets('CT-Disc-only 候选显示通道与暂不支持连接（M5）', (tester) async {
     final source = FakeSource();
     final device = FakeCtDevice();
     final controller = wiredController(source, device);
@@ -152,17 +158,19 @@ void main() {
     await pumpApp(tester, controller);
     await settle(tester);
 
+    // AP-only 行已可连接（softAP 连接链，见断网提示用例）；暂不支持
+    // 归属于 CT-Disc-only 行——NE301 Web API 传输面尚未落地。
     source.emit(
       sampleCandidate(
-        candidateId: 'ap:CT-AP-BBC6DC',
-        modelHint: 'NE101-P',
-      ).copyWith(channels: const {DiscoveryChannel.accessPoint}),
+        candidateId: 'ctdisc:BBC6DC@Ethernet',
+        modelHint: 'NE301',
+      ).copyWith(channels: const {DiscoveryChannel.ctDisc}),
     );
     await settle(tester);
     expect(controller.phase, SessionPhase.resultsAvailable);
-    // Row present with the AP channel chip, but no connect offer.
-    expect(find.text('NE101-P'), findsOneWidget);
-    expect(find.text('AP'), findsWidgets);
+    // Row present with the CT-Disc channel chip, but no connect offer.
+    expect(find.text('NE301'), findsOneWidget);
+    expect(find.text('CT-Disc'), findsWidgets);
     expect(find.text('暂不支持连接'), findsOneWidget);
     expect(find.text('连接'), findsNothing);
 
@@ -884,6 +892,64 @@ void main() {
 
     await tester.pump(const Duration(seconds: 21));
     expect(controller.phase, SessionPhase.scanEmpty);
+  });
+
+  testWidgets('M5 AP-only 行：连接前弹断网提示，取消留在列表，确认进 softAP 链', (tester) async {
+    final source = FakeSource();
+    final device = FakeCtDevice();
+    final joiner = FakeApJoiner();
+    final transport = FakeApTransport();
+    final controller = wiredController(
+      source,
+      device,
+      apJoiner: joiner,
+      apTransportFactory: () => transport,
+    );
+    addTearDown(source.close);
+    addTearDown(device.close);
+    addTearDown(controller.dispose);
+
+    await pumpApp(tester, controller);
+    await settle(tester); // 自检放行 → 扫描页
+    source.emit(apCandidate());
+    await settle(tester);
+    expect(controller.phase, SessionPhase.resultsAvailable);
+
+    await tester.tap(find.text('连接'));
+    await settle(tester, 12); // dialog open animation
+    // 提示同时点名设备热点与将被暂时断开的当前网络。
+    expect(find.text('连接设备 Wi-Fi'), findsOneWidget);
+    expect(find.text('应用将连接设备热点 NE101-P_BBC6DC 进行配置。'), findsOneWidget);
+    expect(
+      find.text('连接期间将暂时断开当前 Wi-Fi（TP-LINK-5G），配置结束后自动恢复。'),
+      findsOneWidget,
+    );
+
+    // 取消：留在候选列表，未动 radio。
+    await tester.tap(find.text('取消'));
+    await settle(tester, 12); // route exit animation
+    expect(find.text('连接设备 Wi-Fi'), findsNothing);
+    expect(controller.phase, SessionPhase.resultsAvailable);
+    expect(joiner.joins, isEmpty);
+
+    // 确认：进入 softAP 连接链，直达模块列表。
+    await tester.tap(find.text('连接'));
+    await settle(tester, 12);
+    await tester.tap(find.text('连接并配置'));
+    await settle(tester);
+    expect(joiner.joins, ['NE101-P_BBC6DC']);
+    expect(controller.phase, SessionPhase.choosingSections);
+    expect(find.text('NE101-P_BBC6DC'), findsOneWidget); // 会话上下文条
+
+    // 会话收尾：radio 还给原网，重扫收敛回空态（无悬挂定时器）。
+    expect(joiner.restores, isEmpty);
+    await controller.rescan();
+    await tester.pump(const Duration(milliseconds: 16));
+    await tester.pump(const Duration(seconds: 21));
+    expect(controller.phase, SessionPhase.scanEmpty);
+    expect(joiner.restores, [
+      const WlanRestorePoint(ssid: 'TP-LINK-5G', profileName: 'TP-LINK-5G'),
+    ]);
   });
 
   testWidgets('v7d 取消会话：已有输入先确认，继续编辑保留 / 放弃并退出清空', (tester) async {

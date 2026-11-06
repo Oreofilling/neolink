@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:discovery_domain/discovery_domain.dart';
 import 'package:flutter/material.dart';
 import 'package:neolink_ui/neolink_ui.dart';
 import 'package:provisioning_session/provisioning_session.dart';
@@ -88,9 +89,15 @@ class _ConnectPageState extends State<ConnectPage> {
 
   Widget _timelineCard(NLColors c, AppLocalizations l) {
     final phase = controller.phase;
+    // M5: the timeline's first two steps describe the link being built —
+    // pairing/GATT for BLE rows, Wi-Fi join/gateway for softAP rows. The
+    // reading steps are shared.
+    final viaAp = controller.selectedCandidate != null &&
+        !controller.selectedCandidate!.channels
+            .contains(DiscoveryChannel.ble);
     final steps = [
-      l.connectPairing,
-      l.connectOpening,
+      viaAp ? l.connectJoinWlan : l.connectPairing,
+      viaAp ? l.connectDeviceLink : l.connectOpening,
       l.connectReadingInfo,
       l.connectReadingCaps,
     ];

@@ -38,6 +38,8 @@ dependencies:
     path: ../../packages/discovery_domain
   ap_discovery_adapter:
     path: ../../packages/ap_discovery_adapter
+  softap_transport:
+    path: ../../packages/softap_transport
   ct_disc_adapter:
     path: ../../packages/ct_disc_adapter
   provisioning_session:

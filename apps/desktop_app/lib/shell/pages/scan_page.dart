@@ -1,3 +1,4 @@
+import 'package:ap_discovery_adapter/ap_discovery_adapter.dart';
 import 'package:discovery_domain/discovery_domain.dart';
 import 'package:flutter/material.dart';
 import 'package:neolink_ui/neolink_ui.dart';
@@ -57,6 +58,92 @@ class _ScanPageState extends State<ScanPage> {
     } catch (error) {
       debugPrint('open Wi-Fi settings failed: $error');
     }
+  }
+
+  /// Pre-join consent for AP-only rows (M5): joining the device hotspot
+  /// disconnects the machine's current Wi-Fi, so the dialog names both
+  /// networks and promises the automatic restore. Cancel keeps the list.
+  Future<void> _confirmApJoin(DiscoveryCandidate device) async {
+    final ssid =
+        apSsidFromCandidateId(device.candidateId) ?? device.candidateId;
+    final current = await controller.currentWifiSsid();
+    if (!mounted) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => _apJoinDialog(dialogContext, ssid, current),
+    );
+    if (confirmed == true) {
+      await controller.selectCandidate(device);
+    }
+  }
+
+  Widget _apJoinDialog(BuildContext dialogContext, String ssid, String? current) {
+    final dc = dialogContext.nl;
+    final dl = AppLocalizations.of(dialogContext)!;
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      elevation: 0,
+      child: Container(
+        width: 400,
+        padding: const EdgeInsets.all(20),
+        // v7d: only overlays get the light shadow — this one surface
+        // floats, everything below stays flat.
+        decoration: BoxDecoration(
+          color: dc.card,
+          borderRadius: BorderRadius.circular(NLRadii.radiusLg),
+          boxShadow: NLShadows.overlay,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.wifi, size: 18, color: dc.accentCyan),
+                const SizedBox(width: 8),
+                Text(
+                  dl.scanApDialogTitle,
+                  style: NLType.cardTitle.copyWith(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Text(
+              dl.scanApDialogBody(ssid),
+              style: NLType.body.copyWith(color: dc.mutedForeground),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              current != null
+                  ? dl.scanApDialogOffline(current)
+                  : dl.scanApDialogNoCurrent,
+              style: NLType.body.copyWith(color: dc.mutedForeground),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                NLButton(
+                  label: dl.scanApDialogCancel,
+                  variant: NLButtonVariant.ghost,
+                  size: NLButtonSize.sm,
+                  onPressed: () => Navigator.of(dialogContext).pop(false),
+                ),
+                const SizedBox(width: 8),
+                NLButton(
+                  label: dl.scanApDialogConfirm,
+                  size: NLButtonSize.sm,
+                  onPressed: () => Navigator.of(dialogContext).pop(true),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -479,10 +566,13 @@ class _ScanPageState extends State<ScanPage> {
     required bool hovered,
   }) {
     final selectable = device.provisionable && !device.busy;
-    // M5: AP/CT-Disc-only rows are display candidates for now — the softAP
-    // connect chain lands in its own round, so the row says so instead of
-    // offering a connect that could only fail.
+    // M5: BLE rows connect straight through the GATT chain; AP-only rows
+    // go through the join dialog first (the machine's Wi-Fi moves — the
+    // user must know). CT-Disc-only rows stay display candidates until
+    // their transport lands.
     final bleConnectable = device.channels.contains(DiscoveryChannel.ble);
+    final apConnectable = !bleConnectable &&
+        device.channels.contains(DiscoveryChannel.accessPoint);
     final age = DateTime.now().difference(device.lastSeen);
     final stale = age > controller.ttl;
     final focused =
@@ -674,7 +764,7 @@ class _ScanPageState extends State<ScanPage> {
                         width: 84,
                         child: Align(
                           alignment: Alignment.centerRight,
-                          child: bleConnectable
+                          child: bleConnectable || apConnectable
                               ? NLButton(
                                   label: l.scanSelect,
                                   size: NLButtonSize.sm,
@@ -682,7 +772,11 @@ class _ScanPageState extends State<ScanPage> {
                                       ? NLButtonVariant.primary
                                       : NLButtonVariant.secondary,
                                   onPressed: selectable
-                                      ? () => controller.selectCandidate(device)
+                                      ? () => bleConnectable
+                                            ? controller.selectCandidate(
+                                                device,
+                                              )
+                                            : _confirmApJoin(device)
                                       : null,
                                 )
                               : Text(

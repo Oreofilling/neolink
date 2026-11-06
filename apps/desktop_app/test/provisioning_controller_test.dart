@@ -1089,10 +1089,12 @@ void main() {
 
   group('M5 three-channel scan', () {
     test(
-      'AP/CT-Disc-only candidates stay visible but do not enter GATT',
+      'AP-only rows join the softAP chain; CT-Disc-only rows fail stable',
       () async {
         final source = FakeSource();
         var connectCalls = 0;
+        final joiner = FakeApJoiner();
+        final transport = FakeApTransport();
         final controller = ProvisioningController(
           environmentProbe: readyProbe(),
           discoverySource: source,
@@ -1102,6 +1104,8 @@ void main() {
             return FakeCtDevice();
           },
           linkEvents: (_) => const Stream<bool>.empty(),
+          apJoiner: joiner,
+          apTransportFactory: () => transport,
           selfCheckHold: Duration.zero,
         );
         addTearDown(controller.dispose);
@@ -1112,7 +1116,9 @@ void main() {
           () => source.startCount == 1,
           'selfcheck did not start scan',
         );
-        // Same device seen through the AP channel only: display candidate.
+        // Same device seen through the AP channel only: the row now carries
+        // the softAP join chain (M5) — wlanapi join, HTTP transport, and the
+        // GATT face stays untouched.
         source.emit(
           sampleCandidate(
             candidateId: 'ap:CT-AP-BBC6DC',
@@ -1127,11 +1133,46 @@ void main() {
 
         await controller.selectCandidate(controller.candidates.single);
         await until(
+          () => controller.phase == SessionPhase.choosingSections,
+          'softAP chain did not reach capabilities',
+        );
+        expect(joiner.joins, ['CT-AP-BBC6DC']);
+        expect(connectCalls, 0);
+
+        // Ending the round releases the link and restores the pre-join Wi-Fi.
+        await controller.rescan();
+        expect(controller.phase, SessionPhase.scanning);
+        expect(joiner.restores, isNotEmpty);
+        await until(
+          () => source.startCount == 2,
+          'rescan did not restart the scan source',
+        );
+
+        // CT-Disc-only sighting (own MAC suffix so the registry keeps it a
+        // separate row): visible, but no connect chain — the NE301 Web API
+        // face is future work, so it fails with a stable reason.
+        source.emit(
+          DiscoveryCandidate(
+            candidateId: 'ctdisc:CCDDEE@Ethernet',
+            macSuffix: 'CCDDEE',
+            channels: const {DiscoveryChannel.ctDisc},
+            provisionable: true,
+            busy: false,
+            lastSeen: DateTime.now(),
+          ),
+        );
+        await until(
+          () => controller.candidates.isNotEmpty,
+          'ctdisc candidate never arrived',
+        );
+        await controller.selectCandidate(controller.candidates.single);
+        await until(
           () => controller.phase == SessionPhase.connectionError,
           'guard did not fail the connect chain',
         );
         expect(controller.lastProblem?.reason, 'channel_unsupported');
         expect(connectCalls, 0);
+        expect(joiner.joins, ['CT-AP-BBC6DC']); // no extra join attempt
 
         // The row is still there after the failure (back to the list).
         controller.switchCandidate();

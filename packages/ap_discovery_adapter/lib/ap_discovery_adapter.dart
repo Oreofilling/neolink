@@ -5,3 +5,4 @@ library;
 export 'src/ap_discovery_source.dart';
 export 'src/ap_ssid_pattern.dart';
 export 'src/win_wlan.dart';
+export 'src/win_wlan_join.dart';

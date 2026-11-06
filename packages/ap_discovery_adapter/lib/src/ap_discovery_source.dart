@@ -21,6 +21,17 @@ import 'win_wlan.dart';
 /// fine (BLE drives the fast path).
 const Duration kApPollInterval = Duration(seconds: 8);
 
+/// Candidate-id prefix for AP sightings (candidateId = `ap:<SSID>`).
+const String kApCandidateIdPrefix = 'ap:';
+
+/// Raw device-AP SSID behind an AP candidate id, or null when the id does
+/// not carry one (model+suffix cannot reconstruct it: the legacy SSID model
+/// segment may keep family parts like `NE101-P` the candidate drops).
+String? apSsidFromCandidateId(String candidateId) =>
+    candidateId.startsWith(kApCandidateIdPrefix)
+        ? candidateId.substring(kApCandidateIdPrefix.length)
+        : null;
+
 /// Normalizes one WLAN scan into candidates.
 ///
 /// [now] is injectable for tests. AP observations cannot see the CT-Prov
