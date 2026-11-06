@@ -8,6 +8,22 @@ import 'package:ap_discovery_adapter/ap_discovery_adapter.dart';
 import 'package:test/test.dart';
 
 void main() {
+  group('wlanapi enum pins (wlanapitypes.h)', () {
+    // The bench hit WlanConnect rc=87 when temporary_profile was misread
+    // as 2: that is discovery_secure, an OS-reserved mode that demands a
+    // BSSID list. Pin the enum so the value never drifts again.
+    test('connection mode: profile=0, temporary_profile=1', () {
+      expect(kWlanConnectionModeProfile, 0);
+      expect(kWlanConnectionModeTemporaryProfile, 1);
+    });
+
+    // autoconf_start..interface_state occupy 0-6; querying anything lower
+    // than 7 returns a different payload than WLAN_CONNECTION_ATTRIBUTES.
+    test('current_connection query opcode is 7', () {
+      expect(kWlanOpcodeCurrentConnection, 7);
+    });
+  });
+
   group('FFI struct layout pins (x64)', () {
     // wlanapitypes.h: mode@0 + strProfile@8 + 两个指针 + 两个尾枚举。
     test('WLAN_CONNECTION_PARAMETERS sizeof 40', () {

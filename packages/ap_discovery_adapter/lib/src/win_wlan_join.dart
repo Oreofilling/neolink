@@ -35,15 +35,22 @@ const Duration _kProbeTimeout = Duration(seconds: 1);
 // wlan_interface_state_connected (wlanapitypes.h).
 const int _kInterfaceStateConnected = 1;
 
-// wlan_connection_mode_profile / wlan_connection_mode_temporary_profile.
-const int _kConnectionModeProfile = 0;
-const int _kConnectionModeTemporaryProfile = 2;
+// wlanapitypes.h WLAN_CONNECTION_MODE: profile=0, temporary_profile=1,
+// discovery_secure=2 (OS-reserved; an app call with a null BSSID list
+// returns ERROR_INVALID_PARAMETER — the rc=87 the bench hit when this
+// value was misread as 2).
+const int kWlanConnectionModeProfile = 0;
+const int kWlanConnectionModeTemporaryProfile = 1;
 
 // dot11_BSS_type_infrastructure.
 const int _kBssTypeInfrastructure = 1;
 
-// wlan_intf_opcode_current_connection.
-const int _kOpcodeCurrentConnection = 1;
+// wlan_intf_opcode enum prefix: autoconf_start=0, autoconf_enabled=1,
+// background_scan=2, media_streaming=3, radio_state=4, bss_type=5,
+// interface_state=6, current_connection=7 (querying anything lower
+// returns a different payload shape — the attributes cast would read
+// garbage).
+const int kWlanOpcodeCurrentConnection = 7;
 
 /// The Wi-Fi link to return to after a softAP session.
 final class WlanRestorePoint {
@@ -182,7 +189,7 @@ final class WinWlanJoiner implements ApJoiner {
       final params = calloc<WlanConnectionParameters>();
       try {
         params.ref
-          ..connectionMode = _kConnectionModeTemporaryProfile
+          ..connectionMode = kWlanConnectionModeTemporaryProfile
           ..profile = xml.cast()
           ..dot11Ssid = nullptr
           ..desiredBssidList = nullptr
@@ -253,7 +260,7 @@ final class WinWlanJoiner implements ApJoiner {
       final params = calloc<WlanConnectionParameters>();
       try {
         params.ref
-          ..connectionMode = _kConnectionModeProfile
+          ..connectionMode = kWlanConnectionModeProfile
           ..profile = namePtr.cast()
           ..dot11Ssid = nullptr
           ..desiredBssidList = nullptr
@@ -297,7 +304,7 @@ final class WinWlanJoiner implements ApJoiner {
       final rc = _queryInterface(
         handle,
         guid,
-        _kOpcodeCurrentConnection,
+        kWlanOpcodeCurrentConnection,
         nullptr,
         dataSize,
         data,
