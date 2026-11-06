@@ -86,6 +86,18 @@ void main() {
     });
   });
 
+  group('ipAddMembershipFor', () {
+    test('option number follows the OS numbering', () {
+      // BSD lineage (ws2ipdef.h / netinet/in.h) numbers membership 12;
+      // Linux (uapi/linux/in.h) numbers it 35. The old code hardcoded 5
+      // everywhere, which WSAENOPROTOOPT-rejected every join on Windows
+      // and left the channel silently dead.
+      expect(ipAddMembershipFor('windows'), 12);
+      expect(ipAddMembershipFor('macos'), 12);
+      expect(ipAddMembershipFor('linux'), 35);
+    });
+  });
+
   group('ctDiscCandidateFromObservation', () {
     test('candidate id encodes suffix and interface', () {
       final observation = parseCtAnnounce(utf8.encode(_announce))!;

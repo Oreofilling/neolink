@@ -30,8 +30,21 @@ const int kCtDiscPort = 19850;
 /// value 0 on Linux, Windows and macOS).
 const int kIpProtoIpLevel = 0;
 
-/// IP_ADD_MEMBERSHIP (identical value 5 on Linux, Windows and macOS).
-const int kIpAddMembership = 5;
+/// IP_ADD_MEMBERSHIP under BSD numbering (ws2ipdef.h on Windows,
+/// netinet/in.h on macOS).
+const int kIpAddMembershipBsd = 12;
+
+/// IP_ADD_MEMBERSHIP under Linux (uapi/linux/in.h).
+const int kIpAddMembershipLinux = 35;
+
+/// Resolves the IP_ADD_MEMBERSHIP option number for [operatingSystem].
+///
+/// The option name is portable but the number is not: hardcoding one
+/// platform's value fails setsockopt on the others (Windows answers
+/// WSAENOPROTOOPT 10042), and a swallowed per-NIC failure turns that
+/// into a silently dead channel.
+int ipAddMembershipFor(String operatingSystem) =>
+    operatingSystem == 'linux' ? kIpAddMembershipLinux : kIpAddMembershipBsd;
 
 /// Normalizes one observation into a candidate.
 ///
@@ -80,6 +93,11 @@ final class CtDiscDiscoverySource implements DiscoverySource {
   /// NICs currently joined (diagnostics + NIC picker state).
   List<NicEndpoint> joinedNics = const <NicEndpoint>[];
 
+  /// Full endpoint pool used for source attribution; unlike [joinedNics]
+  /// it keeps every address, so a multi-address NIC still labels
+  /// announcements from any of its subnets.
+  List<NicEndpoint> _attributionNics = const <NicEndpoint>[];
+
   @override
   Stream<DiscoveryCandidate> get candidates => _candidates.stream;
 
@@ -94,7 +112,10 @@ final class CtDiscDiscoverySource implements DiscoverySource {
           ) ??
           _bindMulticast(nics));
       _socket = socket;
-      joinedNics = nics;
+      _attributionNics = nics;
+      // Factory-injected sockets bypass _bindMulticast's bookkeeping;
+      // there the injected pool is the join seam, so report it as-is.
+      if (_socketFactory != null) joinedNics = nics;
       _socketSub = socket.listen((event) {
         if (event != RawSocketEvent.read) return;
         final datagram = socket.receive();
@@ -114,6 +135,7 @@ final class CtDiscDiscoverySource implements DiscoverySource {
       // silent; capability UI comes from the environment probe.
       _socket = null;
       joinedNics = const <NicEndpoint>[];
+      _attributionNics = const <NicEndpoint>[];
     } finally {
       _starting = false;
     }
@@ -126,9 +148,17 @@ final class CtDiscDiscoverySource implements DiscoverySource {
     _socket?.close();
     _socket = null;
     joinedNics = const <NicEndpoint>[];
+    _attributionNics = const <NicEndpoint>[];
   }
 
   /// Binds once and joins the group through every selected NIC.
+  ///
+  /// One membership per interface: a NIC holding several unicast
+  /// addresses (secondary IPs) still gets a single join — a second
+  /// membership for the same group and interface is redundant and
+  /// Windows rejects it. [joinedNics] ends up holding only the NICs
+  /// whose membership really took, so diagnostics never claim a join
+  /// that setsockopt rejected.
   Future<RawDatagramSocket> _bindMulticast(List<NicEndpoint> nics) async {
     final socket = await RawDatagramSocket.bind(
       InternetAddress.anyIPv4,
@@ -136,22 +166,27 @@ final class CtDiscDiscoverySource implements DiscoverySource {
       reuseAddress: true,
     );
     final group = InternetAddress(kCtDiscMulticastGroup);
+    final joined = <NicEndpoint>[];
+    final joinedInterfaces = <String>{};
     for (final endpoint in nics) {
+      if (!joinedInterfaces.add(endpoint.interfaceName)) continue;
       try {
         _joinGroup(socket, group, endpoint.address);
+        joined.add(endpoint);
       } catch (_) {
         // One unjoinable NIC (some VPN adapters refuse) must not take
         // down the whole channel; the rest keep listening.
       }
     }
+    joinedNics = joined;
     return socket;
   }
 
   // Dart removed RawDatagramSocket.joinMulticastGroup; membership goes
-  // through the raw IP_ADD_MEMBERSHIP socket option instead. For IPv4 the
-  // constant pair is identical on Linux, Windows and macOS
-  // (level: IPPROTO_IP/SOL_IP = 0, option: IP_ADD_MEMBERSHIP = 5) and the
-  // payload is the 8-byte ip_mreq {group, interface address}.
+  // through the raw IP_ADD_MEMBERSHIP socket option instead. The level
+  // (IPPROTO_IP = 0) is portable, but the option NUMBER is not — see
+  // ipAddMembershipFor. The payload is the 8-byte ip_mreq
+  // {group, interface address}.
   static void _joinGroup(
     RawDatagramSocket socket,
     InternetAddress group,
@@ -160,15 +195,20 @@ final class CtDiscDiscoverySource implements DiscoverySource {
     final mreq = Uint8List(8)
       ..setAll(0, group.rawAddress.take(4).toList())
       ..setAll(4, nicAddress.rawAddress.take(4).toList());
-    socket
-        .setRawOption(RawSocketOption(kIpProtoIpLevel, kIpAddMembership, mreq));
+    socket.setRawOption(
+      RawSocketOption(
+        kIpProtoIpLevel,
+        ipAddMembershipFor(Platform.operatingSystem),
+        mreq,
+      ),
+    );
   }
 
   /// Best-effort NIC attribution: prefer the joined NIC whose /24
   /// contains the datagram source, else the source address itself
   /// (diagnostics only — the candidate id stays stable per interface).
   String _interfaceFor(Datagram datagram) {
-    for (final nic in joinedNics) {
+    for (final nic in _attributionNics) {
       if (_sameSubnet(nic.address, datagram.address)) {
         return nic.interfaceName;
       }
