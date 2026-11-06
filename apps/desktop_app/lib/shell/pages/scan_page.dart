@@ -612,9 +612,11 @@ class _ScanPageState extends State<ScanPage> {
     );
   }
 
-  /// One quiet bottom line under the table: the pager on the left (only
-  /// when rows overflow a page), the QR doorway on the right — sharing a
-  /// row keeps the area on one baseline instead of two ragged rows.
+  /// One quiet bottom line under the table: the pager on the left, the QR
+  /// doorway on the right — sharing a row keeps the area on one baseline
+  /// instead of two ragged rows. The pager always renders (its buttons
+  /// disable at the bounds) so the page state stays visible even when all
+  /// rows fit on a single page.
   Widget _tableFooter(
     NLColors c,
     AppLocalizations l, {
@@ -625,21 +627,36 @@ class _ScanPageState extends State<ScanPage> {
       padding: const EdgeInsets.only(top: 10),
       child: Row(
         children: [
-          if (totalPages > 1)
-            _tablePager(c, l, page: page, totalPages: totalPages),
+          _tablePager(c, l, page: page, totalPages: totalPages),
           const Spacer(),
           Text(
             l.noHit,
             style: NLType.aux.copyWith(color: c.mutedForeground),
           ),
           const SizedBox(width: 6),
-          NLButton(
-            label: l.btnQrAddShort,
-            variant: NLButtonVariant.ghost,
-            size: NLButtonSize.xs,
-            onPressed: widget.onOpenGuide,
-          ),
+          _footnoteLink(c, l),
         ],
+      ),
+    );
+  }
+
+  /// The footnote's QR doorway: same type size as the question beside it,
+  /// bold + accent + underline — reads as a link without dragging button
+  /// chrome onto this quiet line.
+  Widget _footnoteLink(NLColors c, AppLocalizations l) {
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        onTap: widget.onOpenGuide,
+        child: Text(
+          l.btnQrAddShort,
+          style: NLType.aux.copyWith(
+            fontWeight: FontWeight.w700,
+            color: c.accentCyan,
+            decoration: TextDecoration.underline,
+            decorationColor: c.accentCyan,
+          ),
+        ),
       ),
     );
   }
@@ -688,8 +705,9 @@ class _ScanPageState extends State<ScanPage> {
 
   /// Column-header dropdown (M5): the closed state keeps the column name;
   /// picking a value filters the table and recolors the header to signal
-  /// the active filter. A popup menu rather than a Material dropdown keeps
-  /// the header a plain text cell that happens to open a menu.
+  /// the active filter. The open menu is themed to the page tokens — flat
+  /// border-only card, compact rows, a tiny accent dot as the selected
+  /// mark — instead of the default Material checkmark surface.
   Widget _headerDropdown({
     required NLColors c,
     required String keyName,
@@ -700,40 +718,89 @@ class _ScanPageState extends State<ScanPage> {
     required ValueChanged<String> onSelected,
   }) {
     final active = selected != null && options.containsKey(selected);
-    return PopupMenuButton<String>(
-      key: ValueKey(keyName),
-      padding: EdgeInsets.zero,
-      initialValue: active ? selected : kFilterAll,
-      onSelected: onSelected,
-      constraints: const BoxConstraints(minWidth: 180),
-      tooltip: closedLabel,
-      itemBuilder: (context) => [
-        CheckedPopupMenuItem<String>(
-          value: kFilterAll,
-          checked: !active,
-          child: Text(allLabel),
-        ),
-        for (final entry in options.entries)
-          CheckedPopupMenuItem<String>(
-            value: entry.key,
-            checked: entry.key == selected,
-            child: Text(entry.value),
+    return Theme(
+      data: Theme.of(context).copyWith(
+        popupMenuTheme: PopupMenuThemeData(
+          color: c.card,
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(NLRadii.radiusMd),
+            side: BorderSide(color: c.border),
           ),
-      ],
+        ),
+      ),
+      child: PopupMenuButton<String>(
+        key: ValueKey(keyName),
+        padding: EdgeInsets.zero,
+        initialValue: active ? selected : kFilterAll,
+        onSelected: onSelected,
+        tooltip: closedLabel,
+        position: PopupMenuPosition.under,
+        constraints: const BoxConstraints(minWidth: 132),
+        itemBuilder: (context) => [
+          _filterMenuRow(c, kFilterAll, allLabel, checked: !active),
+          for (final entry in options.entries)
+            _filterMenuRow(
+              c,
+              entry.key,
+              entry.value,
+              checked: active && entry.key == selected,
+            ),
+        ],
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              active ? options[selected]! : closedLabel,
+              style: NLType.aux.copyWith(
+                fontWeight: FontWeight.w600,
+                color: active ? c.accentCyan : c.mutedForeground,
+              ),
+            ),
+            const SizedBox(width: 2),
+            Icon(
+              Icons.expand_more,
+              size: 14,
+              color: active ? c.accentCyan : c.mutedForeground,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  PopupMenuItem<String> _filterMenuRow(
+    NLColors c,
+    String value,
+    String label, {
+    required bool checked,
+  }) {
+    return PopupMenuItem<String>(
+      key: ValueKey('filter-option-$value'),
+      value: value,
+      height: 34,
+      padding: const EdgeInsets.symmetric(horizontal: 12),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text(
-            active ? options[selected]! : closedLabel,
-            style: NLType.aux.copyWith(
-              fontWeight: FontWeight.w600,
-              color: active ? c.accentCyan : c.mutedForeground,
+          // Selected mark: a 5px accent dot — quieter than a Material
+          // checkmark and in the same accent language as the rest of the
+          // page.
+          Container(
+            width: 5,
+            height: 5,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: checked ? c.accentCyan : Colors.transparent,
             ),
           ),
-          Icon(
-            Icons.arrow_drop_down,
-            size: 16,
-            color: active ? c.accentCyan : c.mutedForeground,
+          const SizedBox(width: 8),
+          Text(
+            label,
+            style: NLType.aux.copyWith(
+              fontWeight: checked ? FontWeight.w700 : FontWeight.w500,
+              color: checked ? c.accentCyan : c.foreground,
+            ),
           ),
         ],
       ),
