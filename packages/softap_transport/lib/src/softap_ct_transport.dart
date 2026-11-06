@@ -56,9 +56,17 @@ final class SoftapTransportException implements Exception {
   String toString() => 'SoftapTransportException($code): $detail';
 }
 
-/// Default device softAP endpoint (protocol doc section 16; NE101 gateway).
+/// Default device softAP endpoint (protocol doc section 16; NE101 gateway
+/// address — the binding's reference target).
 final Uri kDefaultSoftapEndpoint =
     Uri.parse('http://192.168.1.1/api/v1/ctprov');
+
+/// Builds the CT-Prov endpoint for a device softAP host. The address is
+/// per-model (NE101 192.168.1.1 / NE301 192.168.10.10 / NE503 10.0.0.1 —
+/// see kApDefaultHostByModel in ap_discovery_adapter); this keeps the
+/// scheme and path in one place.
+Uri softapEndpointForHost(String host) =>
+    Uri.parse('http://$host/api/v1/ctprov');
 
 /// One-request-per-round-trip CT-Prov transport over device softAP HTTP.
 ///

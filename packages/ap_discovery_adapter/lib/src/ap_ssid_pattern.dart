@@ -14,6 +14,29 @@ library;
 /// starts with one of these families.
 const List<String> kApModelPrefixes = ['NE101', 'NE301', 'NE503'];
 
+/// Default device softAP address per family (factory config mode). The
+/// CT-Prov HTTP binding is served on the device's own AP-side address,
+/// which differs per model — NE101 and NE301 even sit in different /16s,
+/// so a wrong pick never gets a TCP answer.
+const Map<String, String> kApDefaultHostByModel = {
+  'NE101': '192.168.1.1',
+  'NE301': '192.168.10.10',
+  'NE503': '10.0.0.1',
+};
+
+/// Resolves the softAP HTTP host for a candidate's model hint (family
+/// prefix, e.g. "NE301" / "NE301-P"). A null or unrecognized hint (CT-AP-*
+/// SSIDs carry no model) falls back to the NE101 address — the section 16
+/// reference target.
+String softapHostForModel(String? modelHint) {
+  if (modelHint != null) {
+    for (final family in kApModelPrefixes) {
+      if (modelHint.startsWith(family)) return kApDefaultHostByModel[family]!;
+    }
+  }
+  return kApDefaultHostByModel['NE101']!;
+}
+
 final RegExp _specSsid = RegExp(r'^CT-AP-([0-9A-F]{6})$');
 
 // Legacy: the firmware emits `<MODEL>_<SUFFIX>` where MODEL may carry one

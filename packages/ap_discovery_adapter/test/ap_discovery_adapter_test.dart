@@ -194,4 +194,34 @@ void main() {
       expect(calls, 1);
     });
   });
+
+  // Model -> default softAP address pins. The connect chain picks its HTTP
+  // target from this table; a wrong pick never gets a TCP answer (the
+  // rc=87 round taught the same lesson about unanchored constants — user
+  // bench report: NE301 answers on 192.168.10.10, not the NE101 address).
+  group('softapHostForModel (per-family default addresses)', () {
+    test('families map to their factory softAP addresses', () {
+      expect(softapHostForModel('NE101'), '192.168.1.1');
+      expect(softapHostForModel('NE301'), '192.168.10.10');
+      expect(softapHostForModel('NE503'), '10.0.0.1');
+    });
+
+    test('family-prefixed sub-models keep their family address', () {
+      expect(softapHostForModel('NE101-P'), '192.168.1.1');
+      expect(softapHostForModel('NE503C'), '10.0.0.1');
+    });
+
+    test('null or unknown hints fall back to the NE101 reference address', () {
+      // CT-AP-* SSIDs carry no model hint at all.
+      expect(softapHostForModel(null), '192.168.1.1');
+      expect(softapHostForModel('SOMEBRAND'), '192.168.1.1');
+    });
+
+    test('table covers exactly the scan whitelist families', () {
+      expect(
+        kApDefaultHostByModel.keys.toSet(),
+        kApModelPrefixes.toSet(),
+      );
+    });
+  });
 }

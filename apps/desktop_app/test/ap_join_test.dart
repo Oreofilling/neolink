@@ -24,7 +24,7 @@ Future<ProvisioningController> wiredAp(
     connectChannel: (_, __) async => FakeCtDevice(),
     linkEvents: (_) => const Stream<bool>.empty(),
     apJoiner: joiner,
-    apTransportFactory: () => transport,
+    apTransportFactory: (_) => transport,
     selfCheckHold: Duration.zero,
   );
   addTearDown(controller.dispose);

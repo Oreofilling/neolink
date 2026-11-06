@@ -36,7 +36,7 @@ class ProvisioningController extends ChangeNotifier {
     connectChannel,
     Stream<bool> Function(String deviceId)? linkEvents,
     ApJoiner? apJoiner,
-    ProvTransport Function()? apTransportFactory,
+    ProvTransport Function(Uri endpoint)? apTransportFactory,
     this.scanTimeout = const Duration(seconds: 20),
     this.ttl = const Duration(seconds: 12),
     this.selfCheckHold = const Duration(seconds: 5),
@@ -98,7 +98,7 @@ class ProvisioningController extends ChangeNotifier {
   _connect;
   final Stream<bool> Function(String deviceId) _linkEvents;
   final ApJoiner _apJoiner;
-  final ProvTransport Function()? _apTransportFactory;
+  final ProvTransport Function(Uri endpoint)? _apTransportFactory;
 
   late final ProvisioningMachine _machine;
   late final StreamSubscription<SessionPhase> _phaseSub;
@@ -487,6 +487,13 @@ class ProvisioningController extends ChangeNotifier {
     }
     ProvTransport? transport;
     try {
+      // Per-model softAP address: the HTTP binding sits on the device's
+      // own AP address (NE101 192.168.1.1 / NE301 192.168.10.10 / NE503
+      // 10.0.0.1). Resolved from the row's model hint; rows without one
+      // (CT-AP-* SSIDs) fall back to the NE101 reference address.
+      final endpoint = softapEndpointForHost(
+        softapHostForModel(candidate.modelHint),
+      );
       onStep('joining wlan');
       // Fresh snapshot each chain run (retry after a restored failure sees
       // the same network, but truth beats caching). Reconnect after a drop
@@ -496,13 +503,15 @@ class ProvisioningController extends ChangeNotifier {
       _apRestoreValid = true;
       await _apJoiner.join(
         ssid,
-        gatewayHost: kDefaultSoftapEndpoint.host,
-        gatewayPort: kDefaultSoftapEndpoint.port,
+        gatewayHost: endpoint.host,
+        gatewayPort: endpoint.port,
         onStep: onStep,
       );
       if (_machine.phase != SessionPhase.connecting) return;
       onStep('device link');
-      transport = _apTransportFactory?.call() ?? SoftapCtTransport();
+      transport =
+          _apTransportFactory?.call(endpoint) ??
+          SoftapCtTransport(endpoint: endpoint);
       final session = CtSessionClient.overTransport(transport);
       _session = session;
       _machine.transportReady();
@@ -648,16 +657,23 @@ class ProvisioningController extends ChangeNotifier {
         if (ssid == null) {
           throw const ApJoinException(kJoinNoInterface, 'not an AP candidate');
         }
+        // Same per-model address resolution as the first connect (see
+        // _connectChainOverSoftAp).
+        final endpoint = softapEndpointForHost(
+          softapHostForModel(candidate.modelHint),
+        );
         await _apJoiner.join(
           ssid,
-          gatewayHost: kDefaultSoftapEndpoint.host,
-          gatewayPort: kDefaultSoftapEndpoint.port,
+          gatewayHost: endpoint.host,
+          gatewayPort: endpoint.port,
         );
         // The drop's release already consumed the restore flag while the
         // captured point stays the true target — re-arm so the eventual
         // session end still restores the pre-session Wi-Fi.
         _apRestoreValid = true;
-        final transport = _apTransportFactory?.call() ?? SoftapCtTransport();
+        final transport =
+            _apTransportFactory?.call(endpoint) ??
+            SoftapCtTransport(endpoint: endpoint);
         final session = CtSessionClient.overTransport(transport);
         _session = session;
         await session.open();

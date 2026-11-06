@@ -31,7 +31,7 @@ ProvisioningController wiredController(
   Duration selfCheckHold = Duration.zero,
   Stream<bool> Function(String deviceId)? linkEvents,
   ApJoiner? apJoiner,
-  ProvTransport Function()? apTransportFactory,
+  ProvTransport Function(Uri endpoint)? apTransportFactory,
 }) => ProvisioningController(
   environmentProbe: readyProbe(),
   discoverySource: source,
@@ -1077,7 +1077,7 @@ void main() {
       source,
       device,
       apJoiner: joiner,
-      apTransportFactory: () => transport,
+      apTransportFactory: (_) => transport,
     );
     addTearDown(source.close);
     addTearDown(device.close);

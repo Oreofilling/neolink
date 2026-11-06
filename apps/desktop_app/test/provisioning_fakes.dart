@@ -506,6 +506,7 @@ final class FakeApTransport implements ProvTransport {
 /// 记录调用的假 joiner：capture 固定返回原网快照，join 可注入失败。
 final class FakeApJoiner implements ApJoiner {
   final joins = <String>[];
+  final gatewayHosts = <String>[];
   final restores = <WlanRestorePoint?>[];
 
   WlanRestorePoint? captureResult = const WlanRestorePoint(
@@ -527,6 +528,7 @@ final class FakeApJoiner implements ApJoiner {
     void Function(String step)? onStep,
   }) async {
     joins.add(ssid);
+    gatewayHosts.add(gatewayHost);
     final error = joinError;
     if (error != null) throw error;
     onStep?.call('waiting gateway');

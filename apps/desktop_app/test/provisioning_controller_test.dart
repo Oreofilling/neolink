@@ -1105,7 +1105,7 @@ void main() {
           },
           linkEvents: (_) => const Stream<bool>.empty(),
           apJoiner: joiner,
-          apTransportFactory: () => transport,
+          apTransportFactory: (_) => transport,
           selfCheckHold: Duration.zero,
         );
         addTearDown(controller.dispose);
@@ -1137,6 +1137,8 @@ void main() {
           'softAP chain did not reach capabilities',
         );
         expect(joiner.joins, ['CT-AP-BBC6DC']);
+        // NE101-P hint: join probe and HTTP target both on 192.168.1.1.
+        expect(joiner.gatewayHosts, ['192.168.1.1']);
         expect(connectCalls, 0);
 
         // Ending the round releases the link and restores the pre-join Wi-Fi.
@@ -1178,6 +1180,66 @@ void main() {
         controller.switchCandidate();
         expect(controller.phase, SessionPhase.resultsAvailable);
         expect(controller.candidates.single.macSuffix, isNotNull);
+      },
+    );
+
+    test(
+      'NE301 AP rows target the NE301 softAP address (192.168.10.10)',
+      () async {
+        final source = FakeSource();
+        final joiner = FakeApJoiner();
+        final transport = FakeApTransport();
+        final endpoints = <Uri>[];
+        final controller = ProvisioningController(
+          environmentProbe: readyProbe(),
+          discoverySource: source,
+          establishPairing: (_) async {},
+          connectChannel: (_, __) async => FakeCtDevice(),
+          linkEvents: (_) => const Stream<bool>.empty(),
+          apJoiner: joiner,
+          apTransportFactory: (endpoint) {
+            endpoints.add(endpoint);
+            return transport;
+          },
+          selfCheckHold: Duration.zero,
+        );
+        addTearDown(controller.dispose);
+        addTearDown(source.close);
+
+        await controller.runSelfCheck();
+        await until(
+          () => source.startCount == 1,
+          'selfcheck did not start scan',
+        );
+        // Bench case that motivated the per-model table: the office NE301s
+        // never answer on the NE101 address (192.168.1.1) — their softAP
+        // sits on 192.168.10.10.
+        source.emit(
+          sampleCandidate(
+            candidateId: 'ap:NE301_2A3539',
+            macSuffix: '2A3539',
+            modelHint: 'NE301',
+          ).copyWith(channels: const {DiscoveryChannel.accessPoint}),
+        );
+        await until(
+          () => controller.candidates.isNotEmpty,
+          'AP candidate never arrived',
+        );
+
+        await controller.selectCandidate(controller.candidates.single);
+        await until(
+          () => controller.phase == SessionPhase.choosingSections,
+          'softAP chain did not reach capabilities',
+        );
+        expect(joiner.gatewayHosts, ['192.168.10.10']);
+        expect(endpoints.single.toString(),
+            'http://192.168.10.10/api/v1/ctprov');
+
+        await controller.rescan();
+        await until(
+          () => source.startCount == 2,
+          'rescan did not restart the scan source',
+        );
       },
     );
 
