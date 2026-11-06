@@ -29,10 +29,14 @@ final class WlanNetwork {
   /// construction); empty for hidden networks.
   final String ssid;
 
-  /// 0-100 percentage (WLAN_SIGNAL_QUALITY). Kept raw: the discovery
-  /// candidate signal field is dBm; converting is lossy, so V1 AP
-  /// candidates carry no signal.
+  /// 0-100 percentage (WLAN_SIGNAL_QUALITY). Raw value kept for
+  /// diagnostics; the display uses [rssiEstimate].
   final int signalQuality;
+
+  /// dBm estimate for the shared candidate signal field — the
+  /// conventional quality/2-100 mapping (±3 dB, display-grade only: the
+  /// four-bar reading and the dBm number tolerate that error).
+  int get rssiEstimate => (signalQuality / 2 - 100).round();
 
   /// Profile name when the network is known/connected (diagnostics).
   final String profileName;

@@ -30,6 +30,12 @@ void main() {
       expect(info?.modelHint, 'NE301');
     });
 
+    test('NE503 family and prefixed sub-models are accepted', () {
+      expect(parseApSsid('NE503_A1B2C3')?.modelHint, 'NE503');
+      // Prefix rule: a family-prefixed sub-model still starts with NE503.
+      expect(parseApSsid('NE503C_A1B2C3')?.modelHint, 'NE503C');
+    });
+
     test('non-device SSIDs are rejected', () {
       for (final ssid in [
         'Office-2.4G',
@@ -41,6 +47,10 @@ void main() {
         'ct-ap-a1b2c3', // case-sensitive: lowercase never matches
         'NE101-P-BBC6DC', // dash separator is the BLE name, not an SSID
         'X_A1B2C3', // model too short (1 char; minimum is 2)
+        // Family whitelist: foreign <MODEL>_<SUFFIX> lookalikes are noise.
+        'MYCAM_A1B2C3',
+        'DEMO12_A1B2C3',
+        'NE1_A1B2C3', // NE1 is not a product family
         '',
       ]) {
         expect(parseApSsid(ssid), isNull, reason: ssid);
@@ -57,6 +67,9 @@ void main() {
             ssid: 'CT-AP-BBC6DC', signalQuality: 64, profileName: ''),
         const WlanNetwork(
             ssid: 'NE101-P_BBC6DC', signalQuality: 71, profileName: ''),
+        // Whitelist: a pattern-shaped foreign SSID never becomes a row.
+        const WlanNetwork(
+            ssid: 'PRINTER_9F1D02', signalQuality: 90, profileName: ''),
       ];
       final fixedTime = DateTime(2026, 11, 5, 23, 0, 0);
       final candidates = apCandidatesFromNetworks(
@@ -72,10 +85,12 @@ void main() {
       expect(spec.provisionable, isTrue);
       expect(spec.busy, isFalse);
       expect(spec.lastSeen, fixedTime);
-      expect(spec.signal, isNull, reason: 'quality is not dBm; V1 omits it');
+      // Signal is the quality/2-100 dBm estimate (display-grade).
+      expect(spec.signal, -68);
       final legacy = candidates[1];
       expect(legacy.candidateId, 'ap:NE101-P_BBC6DC');
       expect(legacy.modelHint, 'NE101');
+      expect(legacy.signal, -65); // 71/2-100 = -64.5 rounds away from zero
     });
   });
 

@@ -8,6 +8,12 @@
 /// until the CT-AP- rename lands (protocol doc section 16 note).
 library;
 
+/// Product families the AP scan provisions. Foreign SSIDs that happen to
+/// fit the legacy `<MODEL>_<SUFFIX>` shape (a printer, a demo board) are
+/// noise: the legacy form is only recognized when the model segment
+/// starts with one of these families.
+const List<String> kApModelPrefixes = ['NE101', 'NE301', 'NE503'];
+
 final RegExp _specSsid = RegExp(r'^CT-AP-([0-9A-F]{6})$');
 
 // Legacy: the firmware emits `<MODEL>_<SUFFIX>` where MODEL may carry one
@@ -30,9 +36,9 @@ final class ApSsidInfo {
 }
 
 /// Recognizes a device-AP SSID; returns null for anything else (home
-/// networks, neighbors, hidden/empty SSIDs). SSIDs are case-sensitive
-/// bytes; device SSIDs are uppercase by construction, so lowercase hex
-/// simply does not match.
+/// networks, neighbors, hidden/empty SSIDs, foreign `<MODEL>_<SUFFIX>`
+/// lookalikes). SSIDs are case-sensitive bytes; device SSIDs are
+/// uppercase by construction, so lowercase hex simply does not match.
 ApSsidInfo? parseApSsid(String ssid) {
   final spec = _specSsid.firstMatch(ssid);
   if (spec != null) {
@@ -40,9 +46,11 @@ ApSsidInfo? parseApSsid(String ssid) {
   }
   final legacy = _legacySsid.firstMatch(ssid);
   if (legacy != null) {
+    final model = legacy.group(1)!;
+    // Family whitelist: only our product lines surface as candidates.
+    if (!kApModelPrefixes.any(model.startsWith)) return null;
     // Family prefix (before any dash) is the model hint, matching how the
     // firmware derives the BLE device_name.
-    final model = legacy.group(1)!;
     final family = model.split('-').first;
     return ApSsidInfo(macSuffix: legacy.group(2)!, modelHint: family);
   }

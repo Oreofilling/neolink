@@ -182,6 +182,179 @@ void main() {
     expect(controller.phase, SessionPhase.scanEmpty);
   });
 
+  testWidgets('M5 结果表表头过滤：设备栏选型号、通道栏选通道、全部恢复', (tester) async {
+    final source = FakeSource();
+    final device = FakeCtDevice();
+    final controller = wiredController(source, device);
+    addTearDown(source.close);
+    addTearDown(device.close);
+    addTearDown(controller.dispose);
+
+    await pumpApp(tester, controller);
+    await settle(tester);
+
+    source.emit(sampleCandidate(candidateId: 'ble:1', macSuffix: 'AAA001'));
+    source.emit(
+      sampleCandidate(
+        candidateId: 'ble:2',
+        macSuffix: 'AAA002',
+        modelHint: 'NE301',
+      ),
+    );
+    source.emit(
+      sampleCandidate(
+        candidateId: 'ble:3',
+        macSuffix: 'BBB003',
+        modelHint: 'NE301',
+      ).copyWith(channels: const {DiscoveryChannel.accessPoint}),
+    );
+    await settle(tester);
+    // 无过滤：三行齐全，无匹配徽章。
+    expect(find.text('AAA001'), findsOneWidget);
+    expect(find.text('AAA002'), findsOneWidget);
+    expect(find.text('BBB003'), findsOneWidget);
+    expect(find.text('匹配 1/3'), findsNothing);
+
+    // 设备栏（列头下拉）选 NE301：菜单浮层在页面内容之后，同名行文本
+    // 取 .last 命中菜单项。
+    await tester.tap(find.byKey(const Key('scan-model-filter')));
+    await settle(tester);
+    await tester.tap(find.text('NE301').last);
+    await settle(tester);
+    expect(find.text('AAA001'), findsNothing);
+    expect(find.text('AAA002'), findsOneWidget);
+    expect(find.text('BBB003'), findsOneWidget);
+    expect(find.text('匹配 2/3'), findsOneWidget);
+
+    // 通道栏选 AP：两道过滤叠加，只剩走 AP 通道的那行。
+    await tester.tap(find.byKey(const Key('scan-channel-filter')));
+    await settle(tester);
+    await tester.tap(find.text('AP').last);
+    await settle(tester);
+    expect(find.text('BBB003'), findsOneWidget);
+    expect(find.text('AAA002'), findsNothing);
+    expect(find.text('匹配 1/3'), findsOneWidget);
+
+    // 设备栏回到「全部型号」：型号过滤解除，通道过滤仍限定 AP。
+    await tester.tap(find.byKey(const Key('scan-model-filter')));
+    await settle(tester);
+    await tester.tap(find.text('全部型号'));
+    await settle(tester);
+    expect(find.text('AAA001'), findsNothing);
+    expect(find.text('AAA002'), findsNothing);
+    expect(find.text('BBB003'), findsOneWidget);
+    expect(find.text('匹配 1/3'), findsOneWidget);
+
+    // 叠加无命中组合（NE101 × AP）：空匹配行 + 0 匹配徽章。
+    await tester.tap(find.byKey(const Key('scan-model-filter')));
+    await settle(tester);
+    await tester.tap(find.text('NE101').last);
+    await settle(tester);
+    expect(find.text('没有匹配的设备'), findsOneWidget);
+    expect(find.text('匹配 0/3'), findsOneWidget);
+
+    // 通道栏回到「全部通道」：通道过滤解除，型号过滤仍在。
+    await tester.tap(find.byKey(const Key('scan-channel-filter')));
+    await settle(tester);
+    await tester.tap(find.text('全部通道'));
+    await settle(tester);
+    expect(find.text('AAA001'), findsOneWidget);
+    expect(find.text('BBB003'), findsNothing);
+    expect(find.text('匹配 1/3'), findsOneWidget);
+
+    // 设备栏回到「全部型号」：全量恢复，徽章消失。
+    await tester.tap(find.byKey(const Key('scan-model-filter')));
+    await settle(tester);
+    await tester.tap(find.text('全部型号'));
+    await settle(tester);
+    expect(find.text('AAA001'), findsOneWidget);
+    expect(find.text('AAA002'), findsOneWidget);
+    expect(find.text('BBB003'), findsOneWidget);
+    expect(find.text('匹配 1/3'), findsNothing);
+
+    // 收尾：清扫定时器停表（同忙候选用例配方）。
+    await tester.tap(find.text('重新扫描'));
+    await tester.pump(const Duration(milliseconds: 16));
+    await tester.pump(const Duration(seconds: 21));
+    expect(controller.phase, SessionPhase.scanEmpty);
+  });
+
+  testWidgets('M5 结果表分页：每页 8 行，翻页浏览，扫码聚焦自动跳页', (tester) async {
+    final source = FakeSource();
+    final device = FakeCtDevice();
+    final controller = wiredController(source, device);
+    addTearDown(source.close);
+    addTearDown(device.close);
+    addTearDown(controller.dispose);
+
+    await pumpApp(tester, controller);
+    await settle(tester);
+
+    for (var i = 1; i <= 9; i++) {
+      source.emit(
+        sampleCandidate(
+          candidateId: 'ble:$i',
+          macSuffix: 'AAA00$i', // AAA001..AAA009（注册表按到达序）
+        ),
+      );
+    }
+    await settle(tester);
+    // 第 1 页：前 8 行 + 分页器；第 9 行不在页内。
+    expect(find.text('AAA008'), findsOneWidget);
+    expect(find.text('AAA009'), findsNothing);
+    expect(find.text('第 1/2 页'), findsOneWidget);
+
+    await tester.tap(find.text('下一页'));
+    await settle(tester);
+    expect(find.text('AAA001'), findsNothing);
+    expect(find.text('AAA009'), findsOneWidget);
+    expect(find.text('第 2/2 页'), findsOneWidget);
+
+    // 扫码聚焦第 1 页的行：页码自动跳回所在页（聚焦行不得藏在页后）。
+    controller.focusQrCandidate('AAA001');
+    await settle(tester);
+    expect(find.text('AAA001'), findsOneWidget);
+    expect(find.text('第 1/2 页'), findsOneWidget);
+
+    // 收尾：清扫定时器停表。
+    await tester.tap(find.text('重新扫描'));
+    await tester.pump(const Duration(milliseconds: 16));
+    await tester.pump(const Duration(seconds: 21));
+    expect(controller.phase, SessionPhase.scanEmpty);
+  });
+
+  testWidgets('M5 扫码入口收敛：空态面板按钮与结果表脚注，无钉底长条', (tester) async {
+    final source = FakeSource();
+    final device = FakeCtDevice();
+    final controller = wiredController(source, device);
+    addTearDown(source.close);
+    addTearDown(device.close);
+    // 结束在 scanning（指引打开、扫描定时器常驻）：测试体内同步 dispose，
+    // 不再挂 addTearDown 的二次 dispose。
+
+    await pumpApp(tester, controller);
+    await settle(tester);
+    // 有结果：入口是表格下方的轻量脚注（问题文案 + ghost 按钮）。
+    source.emit(sampleCandidate());
+    await settle(tester);
+    expect(find.text('未发现您的设备？'), findsOneWidget); // 脚注问句
+    expect(find.text('扫码添加'), findsOneWidget); // 脚注按钮
+
+    // 空态：入口收进空态面板（按钮在面板内），无重复脚注。
+    await tester.tap(find.text('重新扫描'));
+    await tester.pump(const Duration(milliseconds: 16));
+    await tester.pump(const Duration(seconds: 21));
+    expect(controller.phase, SessionPhase.scanEmpty);
+    expect(find.text('扫码添加'), findsOneWidget);
+    expect(find.text('未发现您的设备？'), findsNothing); // 无第二个问句
+
+    // 空态按钮同样能打开扫码指引（后台持续重开扫描）。
+    await tester.tap(find.text('扫码添加'));
+    await settle(tester);
+    expect(controller.phase, SessionPhase.scanning);
+    controller.dispose();
+  });
+
   testWidgets('连接失败：错误卡展示原因并可返回设备列表', (tester) async {
     final source = FakeSource();
     final controller = ProvisioningController(
@@ -231,8 +404,9 @@ void main() {
 
     await pumpApp(tester, controller);
     await settle(tester); // 进入扫描
-    // 扫描中（尚无候选）底部也常驻「扫码添加」入口，不必等窗口烧穿。
-    expect(find.text('未发现您的设备？'), findsOneWidget);
+    // M5：雷达态不再常驻扫码条（原钉底长条太突兀）——扫码入口收敛到
+    // 空态面板按钮与结果表脚注。
+    expect(find.text('未发现您的设备？'), findsNothing);
     await tester.pump(const Duration(seconds: 21)); // 超时触发
 
     expect(controller.phase, SessionPhase.scanEmpty);

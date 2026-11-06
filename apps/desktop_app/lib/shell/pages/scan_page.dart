@@ -47,6 +47,14 @@ class _ScanPageState extends State<ScanPage> {
   /// Candidate whose row is under the pointer (v7d row emphasis).
   String? _hoveredCandidateId;
 
+  /// Result-table view state (M5): the device / channel column headers
+  /// double as dropdown filters (model family, discovery channel); the
+  /// table pages once rows overflow one page.
+  String? _modelFilter;
+  DiscoveryChannel? _channelFilter;
+  int _page = 0;
+  static const int _pageSize = 8;
+
   ProvisioningController get controller => widget.controller;
 
   /// Launch failure is non-fatal (the OS owns that page); log and move
@@ -170,7 +178,7 @@ class _ScanPageState extends State<ScanPage> {
           children: [
             Expanded(
               child: SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(20, 20, 20, 10),
+                padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
                 child: ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: 960),
                   child: Column(
@@ -210,27 +218,19 @@ class _ScanPageState extends State<ScanPage> {
                       const SizedBox(height: 14),
                       _channelSection(c, l, candidates),
                       const SizedBox(height: 14),
+                      // M5: the QR doorway is no longer a pinned boxed
+                      // strip (it competed with the rows); it lives inside
+                      // the empty panel and as a quiet footnote under the
+                      // table. The radar state carries no entry at all.
                       if (empty)
                         _emptyPanel(c, l)
                       else if (candidates.isEmpty && scanning)
                         _scanningPanel(c, l)
                       else
-                        _deviceTable(c, l, candidates),
+                        _resultsSection(c, l, candidates),
                     ],
                   ),
                 ),
-              ),
-            ),
-            // The QR entry is a permanent fixture at the bottom — the
-            // user decides to add by code while the sweep is still
-            // running, not only after the window burnt out on a table
-            // full of rows. On empty it doubles as the way out; the
-            // header keeps the rescan action.
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 960),
-                child: _noHitBar(c, l),
               ),
             ),
           ],
@@ -263,6 +263,14 @@ class _ScanPageState extends State<ScanPage> {
             l.emptyHint,
             textAlign: TextAlign.center,
             style: NLType.aux.copyWith(color: c.mutedForeground),
+          ),
+          const SizedBox(height: 14),
+          // The empty state's way out: wake the device and add it by code.
+          NLButton(
+            label: l.btnQrAddShort,
+            variant: NLButtonVariant.secondary,
+            size: NLButtonSize.sm,
+            onPressed: widget.onOpenGuide,
           ),
         ],
       ),
@@ -510,22 +518,287 @@ class _ScanPageState extends State<ScanPage> {
     );
   }
 
-  Widget _deviceTable(
+  /// Rows passing the header dropdown filters (model family + channel).
+  List<DiscoveryCandidate> _filteredRows(
+    List<DiscoveryCandidate> candidates, {
+    String? modelFilter,
+    DiscoveryChannel? channelFilter,
+  }) {
+    return [
+      for (final device in candidates)
+        if (modelFilter == null || device.modelHint == modelFilter)
+          if (channelFilter == null ||
+              device.channels.contains(channelFilter))
+            device,
+    ];
+  }
+
+  /// Model families the live list can offer (unknowns last) — the device
+  /// column dropdown never shows a family nothing answers on.
+  List<String> _modelOptions(List<DiscoveryCandidate> candidates) {
+    final hints = candidates.map((device) => device.modelHint ?? '').toSet();
+    final known = hints.where((model) => model.isNotEmpty).toList()..sort();
+    return hints.contains('') ? [...known, ''] : known;
+  }
+
+  /// Discovery channels present in the live list, in enum order.
+  List<DiscoveryChannel> _channelOptions(List<DiscoveryCandidate> candidates) {
+    return [
+      for (final channel in DiscoveryChannel.values)
+        if (candidates.any((d) => d.channels.contains(channel))) channel,
+    ];
+  }
+
+  /// Results area (M5): match badge while a dropdown filter is active, one
+  /// page of rows, then a single bottom line — pager on the left, the quiet
+  /// QR doorway on the right. The QR focus wins the page choice — a
+  /// highlighted row on another page jumps into view instead of hiding
+  /// behind the pager.
+  Widget _resultsSection(
     NLColors c,
     AppLocalizations l,
     List<DiscoveryCandidate> candidates,
   ) {
+    // A filter can outlive its rows after a rescan — treat a selection
+    // nothing currently answers on as "no filter" rather than an empty
+    // table the user cannot explain.
+    final modelFilter = _modelOptions(candidates).contains(_modelFilter)
+        ? _modelFilter
+        : null;
+    final channelFilter = _channelOptions(candidates).contains(_channelFilter)
+        ? _channelFilter
+        : null;
+    final filtering = modelFilter != null || channelFilter != null;
+    final filtered = _filteredRows(
+      candidates,
+      modelFilter: modelFilter,
+      channelFilter: channelFilter,
+    );
+    final totalPages = filtered.isEmpty
+        ? 1
+        : (filtered.length / _pageSize).ceil();
+    final focusedIndex = controller.qrFocusSuffix == null
+        ? -1
+        : filtered.indexWhere(
+            (device) => device.macSuffix == controller.qrFocusSuffix,
+          );
+    final page = (focusedIndex >= 0 ? focusedIndex ~/ _pageSize : _page)
+        .clamp(0, totalPages - 1);
+    final visible = filtered
+        .skip(page * _pageSize)
+        .take(_pageSize)
+        .toList();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (filtering) ...[
+          NLBadge(
+            label: l.scanFilterCount(filtered.length, candidates.length),
+            variant: NLBadgeVariant.muted,
+          ),
+          const SizedBox(height: 8),
+        ],
+        _deviceTable(
+          c,
+          l,
+          visible,
+          allCandidates: candidates,
+          modelFilter: modelFilter,
+          channelFilter: channelFilter,
+          allMatched: filtered.isNotEmpty,
+        ),
+        _tableFooter(c, l, page: page, totalPages: totalPages),
+      ],
+    );
+  }
+
+  /// One quiet bottom line under the table: the pager on the left (only
+  /// when rows overflow a page), the QR doorway on the right — sharing a
+  /// row keeps the area on one baseline instead of two ragged rows.
+  Widget _tableFooter(
+    NLColors c,
+    AppLocalizations l, {
+    required int page,
+    required int totalPages,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 10),
+      child: Row(
+        children: [
+          if (totalPages > 1)
+            _tablePager(c, l, page: page, totalPages: totalPages),
+          const Spacer(),
+          Text(
+            l.noHit,
+            style: NLType.aux.copyWith(color: c.mutedForeground),
+          ),
+          const SizedBox(width: 6),
+          NLButton(
+            label: l.btnQrAddShort,
+            variant: NLButtonVariant.ghost,
+            size: NLButtonSize.xs,
+            onPressed: widget.onOpenGuide,
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Pager on the footer line — ghost buttons + "page x of y".
+  Widget _tablePager(
+    NLColors c,
+    AppLocalizations l, {
+    required int page,
+    required int totalPages,
+  }) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        NLButton(
+          label: l.scanPrevPage,
+          icon: Icons.chevron_left,
+          variant: NLButtonVariant.ghost,
+          size: NLButtonSize.xs,
+          onPressed: page > 0 ? () => setState(() => _page = page - 1) : null,
+        ),
+        const SizedBox(width: 10),
+        Text(
+          l.scanPageInfo(page + 1, totalPages),
+          style: NLType.aux.copyWith(color: c.mutedForeground),
+        ),
+        const SizedBox(width: 10),
+        NLButton(
+          label: l.scanNextPage,
+          icon: Icons.chevron_right,
+          variant: NLButtonVariant.ghost,
+          size: NLButtonSize.xs,
+          onPressed: page < totalPages - 1
+              ? () => setState(() => _page = page + 1)
+              : null,
+        ),
+      ],
+    );
+  }
+
+  /// Sentinel menu value for the "match everything" choice. PopupMenuButton
+  /// routes a null pop value to onCanceled (same as tapping outside the
+  /// menu), so the all-option needs a real value that onSelected maps back
+  /// to "no filter".
+  static const String kFilterAll = '\u0000all';
+
+  /// Column-header dropdown (M5): the closed state keeps the column name;
+  /// picking a value filters the table and recolors the header to signal
+  /// the active filter. A popup menu rather than a Material dropdown keeps
+  /// the header a plain text cell that happens to open a menu.
+  Widget _headerDropdown({
+    required NLColors c,
+    required String keyName,
+    required String closedLabel,
+    required String allLabel,
+    required Map<String, String> options,
+    required String? selected,
+    required ValueChanged<String> onSelected,
+  }) {
+    final active = selected != null && options.containsKey(selected);
+    return PopupMenuButton<String>(
+      key: ValueKey(keyName),
+      padding: EdgeInsets.zero,
+      initialValue: active ? selected : kFilterAll,
+      onSelected: onSelected,
+      constraints: const BoxConstraints(minWidth: 180),
+      tooltip: closedLabel,
+      itemBuilder: (context) => [
+        CheckedPopupMenuItem<String>(
+          value: kFilterAll,
+          checked: !active,
+          child: Text(allLabel),
+        ),
+        for (final entry in options.entries)
+          CheckedPopupMenuItem<String>(
+            value: entry.key,
+            checked: entry.key == selected,
+            child: Text(entry.value),
+          ),
+      ],
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            active ? options[selected]! : closedLabel,
+            style: NLType.aux.copyWith(
+              fontWeight: FontWeight.w600,
+              color: active ? c.accentCyan : c.mutedForeground,
+            ),
+          ),
+          Icon(
+            Icons.arrow_drop_down,
+            size: 16,
+            color: active ? c.accentCyan : c.mutedForeground,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _deviceTable(
+    NLColors c,
+    AppLocalizations l,
+    List<DiscoveryCandidate> rows, {
+    required List<DiscoveryCandidate> allCandidates,
+    String? modelFilter,
+    DiscoveryChannel? channelFilter,
+    bool allMatched = true,
+  }) {
+    final modelOptions = _modelOptions(allCandidates);
+    final channelOptions = _channelOptions(allCandidates);
     return NLCard(
       padding: EdgeInsets.zero,
       child: Column(
         children: [
-          // Header row.
+          // Header row. The device / channel headers are the dropdown
+          // filters (M5) — the columns they filter are the ones they name.
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
             child: Row(
               children: [
-                Expanded(flex: 3, child: _headText(c, l.tbDevice)),
-                SizedBox(width: 92, child: _headText(c, l.tbChannel)),
+                Expanded(
+                  flex: 3,
+                  child: _headerDropdown(
+                    c: c,
+                    keyName: 'scan-model-filter',
+                    closedLabel: l.tbDevice,
+                    allLabel: l.scanFilterAllModels,
+                    options: {
+                      for (final model in modelOptions)
+                        model: model.isEmpty ? l.scanUnknownModel : model,
+                    },
+                    selected: modelFilter,
+                    onSelected: (value) => setState(() {
+                      _modelFilter = value == kFilterAll ? null : value;
+                      _page = 0; // a fresh filter starts on the first page
+                    }),
+                  ),
+                ),
+                SizedBox(
+                  width: 92,
+                  child: _headerDropdown(
+                    c: c,
+                    keyName: 'scan-channel-filter',
+                    closedLabel: l.tbChannel,
+                    allLabel: l.scanFilterAllChannels,
+                    options: {
+                      for (final channel in channelOptions)
+                        channel.name: _shortChannel(l, channel),
+                    },
+                    selected: channelFilter?.name,
+                    onSelected: (value) => setState(() {
+                      _channelFilter = value == kFilterAll
+                          ? null
+                          : DiscoveryChannel.values.byName(value);
+                      _page = 0;
+                    }),
+                  ),
+                ),
                 SizedBox(width: 120, child: _headText(c, l.tbSignalCol)),
                 SizedBox(width: 110, child: _headText(c, l.tbStatus)),
                 Expanded(flex: 2, child: _headText(c, l.tbLastSeen)),
@@ -534,13 +807,22 @@ class _ScanPageState extends State<ScanPage> {
             ),
           ),
           Divider(height: 1, thickness: 1, color: c.border),
-          for (final candidate in candidates)
-            _deviceRow(
-              c,
-              l,
-              candidate,
-              hovered: _hoveredCandidateId == candidate.candidateId,
-            ),
+          if (!allMatched && rows.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 18),
+                child: Text(
+                  l.scanNoMatch,
+                  style: NLType.aux.copyWith(color: c.mutedForeground),
+                ),
+              )
+            else
+              for (final candidate in rows)
+                _deviceRow(
+                  c,
+                  l,
+                  candidate,
+                  hovered: _hoveredCandidateId == candidate.candidateId,
+                ),
         ],
       ),
     );
@@ -805,34 +1087,6 @@ class _ScanPageState extends State<ScanPage> {
         DiscoveryChannel.accessPoint => l.chanShortAp,
         DiscoveryChannel.ctDisc => l.chanShortDisc,
       };
-
-  /// "Can't find your device?" strip under a non-empty table — the doorway
-  /// into the QR guide (mockup's no-hit bar).
-  Widget _noHitBar(NLColors c, AppLocalizations l) {
-    return Container(
-      decoration: BoxDecoration(
-        border: Border.all(color: c.border),
-        borderRadius: BorderRadius.circular(NLRadii.radiusLg),
-      ),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              l.noHit,
-              style: NLType.body.copyWith(color: c.mutedForeground),
-            ),
-          ),
-          NLButton(
-            label: l.btnQrAddShort,
-            variant: NLButtonVariant.ghost,
-            size: NLButtonSize.sm,
-            onPressed: widget.onOpenGuide,
-          ),
-        ],
-      ),
-    );
-  }
 }
 
 /// Four-bar RSSI indicator: filled bar count follows the dBm band, the exact

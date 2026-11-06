@@ -53,6 +53,7 @@ List<DiscoveryCandidate> apCandidatesFromNetworks(
           provisionable: true,
           busy: false,
           lastSeen: timestamp,
+          signal: network.rssiEstimate,
         ),
   ];
 }
