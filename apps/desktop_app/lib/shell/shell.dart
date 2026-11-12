@@ -438,6 +438,7 @@ class _AppShellState extends State<AppShell> {
       SessionPhase.scanEmpty => l.tbStateEmpty,
       SessionPhase.connecting ||
       SessionPhase.readingCapabilities => l.tbStateConnecting,
+      SessionPhase.webBrowsing => l.tbStateWebHold,
       SessionPhase.connectionError ||
       SessionPhase.capabilityError => l.tbStateConnectFailed,
       SessionPhase.choosingSections ||
@@ -454,6 +455,7 @@ class _AppShellState extends State<AppShell> {
       SessionPhase.completed => NLBadgeVariant.success,
       SessionPhase.connecting ||
       SessionPhase.readingCapabilities ||
+      SessionPhase.webBrowsing ||
       SessionPhase.delivering ||
       SessionPhase.selfChecking => NLBadgeVariant.info,
       _ => NLBadgeVariant.muted,

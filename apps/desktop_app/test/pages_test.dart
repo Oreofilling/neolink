@@ -17,6 +17,7 @@ import 'package:provisioning_session/provisioning_session.dart';
 
 import 'package:desktop_app/app.dart';
 import 'package:desktop_app/provisioning/provisioning_controller.dart';
+import 'package:desktop_app/services/device_web_opener.dart';
 import 'package:desktop_app/services/environment_probe.dart';
 import 'package:desktop_app/services/settings_store.dart';
 import 'package:desktop_app/services/wifi_settings_opener.dart';
@@ -32,6 +33,7 @@ ProvisioningController wiredController(
   Stream<bool> Function(String deviceId)? linkEvents,
   ApJoiner? apJoiner,
   ProvTransport Function(Uri endpoint)? apTransportFactory,
+  DeviceWebOpener? webPageOpener,
 }) => ProvisioningController(
   environmentProbe: readyProbe(),
   discoverySource: source,
@@ -42,6 +44,7 @@ ProvisioningController wiredController(
   linkEvents: linkEvents ?? ((_) => const Stream<bool>.empty()),
   apJoiner: apJoiner,
   apTransportFactory: apTransportFactory,
+  webPageOpener: webPageOpener,
   scanTimeout: scanTimeout,
   selfCheckHold: selfCheckHold,
 );
@@ -117,6 +120,100 @@ void main() {
     expect(controller.editingSections, ['wifi']);
     expect(find.text('返回模块选择'), findsOneWidget); // 模块页返回链接
     expect(find.text('未填'), findsNothing); // 模块页没有列表行徽章
+  });
+
+  testWidgets('AP 行 web 模式：弹窗选「打开网页配置」→ 浏览器打开 → 保持面板 → 断开恢复', (tester) async {
+    final source = FakeSource();
+    final device = FakeCtDevice();
+    final joiner = FakeApJoiner();
+    final transport = FakeApTransport();
+    final openedUrls = <Uri>[];
+    final controller = wiredController(
+      source,
+      device,
+      apJoiner: joiner,
+      apTransportFactory: (_) => transport,
+      webPageOpener: (url) async {
+        openedUrls.add(url);
+        return true;
+      },
+    );
+    addTearDown(source.close);
+    addTearDown(device.close);
+    addTearDown(controller.dispose);
+
+    await pumpApp(tester, controller);
+    await settle(tester);
+
+    source.emit(
+      sampleCandidate(candidateId: 'ap:NE101-P_BBC6DC')
+          .copyWith(channels: const {DiscoveryChannel.accessPoint}),
+    );
+    await settle(tester);
+    expect(controller.phase, SessionPhase.resultsAvailable);
+
+    // AP 行连接先弹断网提示：三个选择，默认主按钮是打开网页配置。
+    await tester.tap(find.text('连接'));
+    await settle(tester);
+    expect(find.text('应用内配置'), findsOneWidget);
+    expect(find.text('打开网页配置'), findsOneWidget);
+
+    await tester.tap(find.text('打开网页配置'));
+    await settle(tester);
+    expect(controller.phase, SessionPhase.webBrowsing);
+    expect(openedUrls, [Uri.parse('http://192.168.1.1/')]);
+
+    // 连接页换成 web 保持面板：URL 可见 + 断开按钮。
+    expect(find.text('设备网页已打开'), findsOneWidget);
+    expect(find.text('http://192.168.1.1/'), findsOneWidget);
+    expect(find.text('断开并恢复 Wi-Fi'), findsOneWidget);
+
+    // 断开：恢复原网并回扫描循环，泵过扫描窗口收敛回空态（清扫定时器）。
+    await tester.tap(find.text('断开并恢复 Wi-Fi'));
+    await settle(tester);
+    expect(controller.phase, SessionPhase.scanning);
+    expect(joiner.restores, hasLength(1));
+    await tester.pump(const Duration(seconds: 21));
+    expect(controller.phase, SessionPhase.scanEmpty);
+  });
+
+  testWidgets('AP 行弹窗选「应用内配置」仍走 CT-Prov 链（回归）', (tester) async {
+    final source = FakeSource();
+    final device = FakeCtDevice();
+    final joiner = FakeApJoiner();
+    final transport = FakeApTransport();
+    final controller = wiredController(
+      source,
+      device,
+      apJoiner: joiner,
+      apTransportFactory: (_) => transport,
+      webPageOpener: (_) async => true,
+    );
+    addTearDown(source.close);
+    addTearDown(device.close);
+    addTearDown(controller.dispose);
+
+    await pumpApp(tester, controller);
+    await settle(tester);
+
+    source.emit(
+      sampleCandidate(candidateId: 'ap:NE101-P_BBC6DC')
+          .copyWith(channels: const {DiscoveryChannel.accessPoint}),
+    );
+    await settle(tester);
+
+    await tester.tap(find.text('连接'));
+    await settle(tester);
+    await tester.tap(find.text('应用内配置'));
+    await settle(tester);
+
+    // 不开网页，正常读到能力进入模块列表。
+    expect(controller.phase, SessionPhase.choosingSections);
+    expect(controller.webPageUrl, isNull);
+    // 模块页打开结束（无悬挂扫描窗口）。
+    await tester.tap(find.text('Wi-Fi 联网'));
+    await settle(tester);
+    expect(controller.phase, SessionPhase.editingConfig);
   });
 
   testWidgets('忙候选显示忙徽章且不可选择', (tester) async {
@@ -1068,7 +1165,7 @@ void main() {
     expect(controller.phase, SessionPhase.scanEmpty);
   });
 
-  testWidgets('M5 AP-only 行：连接前弹断网提示，取消留在列表，确认进 softAP 链', (tester) async {
+  testWidgets('M5 AP-only 行：连接前弹断网提示，取消留在列表，「应用内配置」进 softAP 链', (tester) async {
     final source = FakeSource();
     final device = FakeCtDevice();
     final joiner = FakeApJoiner();
@@ -1106,10 +1203,11 @@ void main() {
     expect(controller.phase, SessionPhase.resultsAvailable);
     expect(joiner.joins, isEmpty);
 
-    // 确认：进入 softAP 连接链，直达模块列表。
+    // 「应用内配置」：进入 softAP 连接链，直达模块列表（web 选择由
+    // web 模式用例覆盖）。
     await tester.tap(find.text('连接'));
     await settle(tester, 12);
-    await tester.tap(find.text('连接并配置'));
+    await tester.tap(find.text('应用内配置'));
     await settle(tester);
     expect(joiner.joins, ['NE101-P_BBC6DC']);
     expect(controller.phase, SessionPhase.choosingSections);

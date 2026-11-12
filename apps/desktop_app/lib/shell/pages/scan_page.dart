@@ -11,6 +11,11 @@ import '../../services/environment_probe.dart';
 import '../../services/wifi_settings_opener.dart';
 import '../widgets/scan_radar.dart';
 
+/// Pre-join dialog outcome for AP-only rows: cancel keeps the list, web
+/// holds the joined link for the device console in the browser, configure
+/// runs the in-app CT-Prov flow.
+enum _ApJoinChoice { cancel, web, configure }
+
 /// Device scan page (v6): a one-line channel status strip up top, then the
 /// live device table as the first visual focus. Continuous scan semantics —
 /// rows appear as devices are found and age out by TTL; the QR guide
@@ -71,18 +76,23 @@ class _ScanPageState extends State<ScanPage> {
   /// Pre-join consent for AP-only rows (M5): joining the device hotspot
   /// disconnects the machine's current Wi-Fi, so the dialog names both
   /// networks and promises the automatic restore. Cancel keeps the list.
+  /// The confirm side offers both AP interactions: the device web console
+  /// in the browser (web mode, works on vendor firmware too) or the
+  /// in-app CT-Prov flow.
   Future<void> _confirmApJoin(DiscoveryCandidate device) async {
     final ssid =
         apSsidFromCandidateId(device.candidateId) ?? device.candidateId;
     final current = await controller.currentWifiSsid();
     if (!mounted) return;
-    final confirmed = await showDialog<bool>(
+    final choice = await showDialog<_ApJoinChoice>(
       context: context,
       builder: (dialogContext) => _apJoinDialog(dialogContext, ssid, current),
     );
-    if (confirmed == true) {
-      await controller.selectCandidate(device);
-    }
+    if (!mounted || choice == null || choice == _ApJoinChoice.cancel) return;
+    await controller.selectCandidate(
+      device,
+      viaWeb: choice == _ApJoinChoice.web,
+    );
   }
 
   Widget _apJoinDialog(BuildContext dialogContext, String ssid, String? current) {
@@ -138,13 +148,25 @@ class _ScanPageState extends State<ScanPage> {
                   label: dl.scanApDialogCancel,
                   variant: NLButtonVariant.ghost,
                   size: NLButtonSize.sm,
-                  onPressed: () => Navigator.of(dialogContext).pop(false),
+                  onPressed: () => Navigator.of(dialogContext).pop(
+                    _ApJoinChoice.cancel,
+                  ),
                 ),
                 const SizedBox(width: 8),
                 NLButton(
-                  label: dl.scanApDialogConfirm,
+                  label: dl.scanApDialogConfigure,
+                  variant: NLButtonVariant.secondary,
                   size: NLButtonSize.sm,
-                  onPressed: () => Navigator.of(dialogContext).pop(true),
+                  onPressed: () => Navigator.of(dialogContext).pop(
+                    _ApJoinChoice.configure,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                NLButton(
+                  label: dl.scanApDialogOpenWeb,
+                  size: NLButtonSize.sm,
+                  onPressed: () =>
+                      Navigator.of(dialogContext).pop(_ApJoinChoice.web),
                 ),
               ],
             ),

@@ -70,7 +70,12 @@ class _ConnectPageState extends State<ConnectPage> {
               children: [
                 Text(l.navConnect, style: NLType.pageTitle),
                 const SizedBox(height: 16),
-                if (failed) _errorBanner(c, l, phase) else _timelineCard(c, l),
+                if (phase == SessionPhase.webBrowsing)
+                  _webHoldCard(c, l)
+                else if (failed)
+                  _errorBanner(c, l, phase)
+                else
+                  _timelineCard(c, l),
               ],
             ),
           ),
@@ -151,6 +156,79 @@ class _ConnectPageState extends State<ConnectPage> {
               variant: NLButtonVariant.ghost,
               size: NLButtonSize.sm,
               onPressed: controller.rescan,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Web mode hold panel (M5): the join succeeded and the device console
+  /// is in the browser — the app's remaining job is to make the held
+  /// state legible (hotspot kept, no internet, idle-sleep behavior) and
+  /// offer the one meaningful action: restore the previous Wi-Fi.
+  Widget _webHoldCard(NLColors c, AppLocalizations l) {
+    final deviceLabel = _deviceLabel();
+    final url = controller.webPageUrl;
+    return NLCard(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            NLBadge(
+              label: deviceLabel.isEmpty
+                  ? l.badgeChecking
+                  : l.connectWith(deviceLabel),
+              variant: NLBadgeVariant.success,
+              dot: true,
+            ),
+            const SizedBox(height: 16),
+            Text(l.webHoldTitle, style: NLType.cardTitle),
+            const SizedBox(height: 8),
+            if (controller.webPageOpened && url != null)
+              Text(
+                l.webHoldOpenedAt,
+                style: NLType.body.copyWith(color: c.mutedForeground),
+              )
+            else
+              Text(
+                l.webHoldOpenFailed,
+                style: NLType.body.copyWith(color: c.error),
+              ),
+            if (url != null) ...[
+              const SizedBox(height: 6),
+              Text(
+                url.toString(),
+                style: NLType.mono.copyWith(color: c.foreground),
+              ),
+            ],
+            const SizedBox(height: 12),
+            Text(
+              l.webHoldKeepNote,
+              style: NLType.aux.copyWith(color: c.mutedForeground),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              l.webHoldIdleNote,
+              style: NLType.aux.copyWith(color: c.mutedForeground),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                NLButton(
+                  label: l.webHoldReopen,
+                  variant: NLButtonVariant.secondary,
+                  size: NLButtonSize.sm,
+                  onPressed: controller.reopenWebPage,
+                ),
+                const SizedBox(width: 8),
+                NLButton(
+                  label: l.webHoldDisconnect,
+                  size: NLButtonSize.sm,
+                  onPressed: controller.finishWebBrowsing,
+                ),
+              ],
             ),
           ],
         ),

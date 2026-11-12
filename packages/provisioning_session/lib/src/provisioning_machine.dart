@@ -22,6 +22,7 @@ enum SessionPhase {
   guideScanning,
   showingGuide,
   connecting,
+  webBrowsing,
   readingCapabilities,
   choosingSections,
   editingConfig,
@@ -65,10 +66,12 @@ const Map<SessionPhase, Set<SessionPhase>> kLegalTransitions = {
     SessionPhase.cleaning,
   },
   SessionPhase.connecting: {
+    SessionPhase.webBrowsing,
     SessionPhase.readingCapabilities,
     SessionPhase.connectionError,
     SessionPhase.cleaning,
   },
+  SessionPhase.webBrowsing: {SessionPhase.cleaning},
   SessionPhase.readingCapabilities: {
     SessionPhase.choosingSections,
     SessionPhase.capabilityError,
@@ -207,6 +210,12 @@ final class ProvisioningMachine {
 
   /// 链路建立完成（连接、配对加密、D2C 订阅、传输泵就绪）。
   void transportReady() => _transition(SessionPhase.readingCapabilities);
+
+  /// softAP join succeeded in web-console mode (M5): the link is held for
+  /// the device web page opened in the browser; the only way out is
+  /// [cleanup], which releases the link (restoring the previous Wi-Fi)
+  /// and returns to the scan loop. No capability read runs in this mode.
+  void webLinkReady() => _transition(SessionPhase.webBrowsing);
 
   /// 能力读取完成。
   void capabilitiesRead() => _transition(SessionPhase.choosingSections);

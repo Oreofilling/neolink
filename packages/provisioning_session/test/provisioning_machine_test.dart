@@ -147,6 +147,46 @@ void main() {
     });
   });
 
+  group('web 模式（M5：softAP join 后直接持有链路开网页）', () {
+    test('connecting → webBrowsing → 清理退出（释放链路）', () async {
+      final (machine, calls) = makeMachine();
+      machine.completeSelfCheck(canProceed: true);
+      machine.reportCandidate();
+      await machine.selectCandidate();
+      machine.webLinkReady();
+      expect(machine.phase, SessionPhase.webBrowsing);
+
+      await machine.cleanup();
+      expect(machine.phase, SessionPhase.scanning);
+      // The held link must go through the release hook on exit (restores
+      // the pre-join Wi-Fi), same funnel as every other chain.
+      expect(calls, contains('release_link'));
+    });
+
+    test('webBrowsing 不接受能力链迁移（无能力读取）', () {
+      final (machine, _) = makeMachine();
+      machine.completeSelfCheck(canProceed: true);
+      machine.reportCandidate();
+      machine.selectCandidate();
+      machine.webLinkReady();
+      expect(
+        () => machine.transportReady(),
+        throwsStateError,
+      );
+      expect(
+        () => machine.capabilitiesRead(),
+        throwsStateError,
+      );
+    });
+
+    test('非 connecting 相位不得进入 webBrowsing', () {
+      final (machine, _) = makeMachine();
+      machine.completeSelfCheck(canProceed: true);
+      machine.reportCandidate();
+      expect(() => machine.webLinkReady(), throwsStateError);
+    });
+  });
+
   group('资源释放钩子', () {
     test('选定候选时停止发现源（不停链路）', () async {
       final (machine, calls) = makeMachine();

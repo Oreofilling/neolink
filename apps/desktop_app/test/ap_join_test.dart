@@ -1,6 +1,7 @@
 // M5 softAP 连接链控制器测试：AP-only 候选经 join → HTTP 传输 → 能力读取
 // 全链；join 失败映射 connectionError 并恢复原 Wi-Fi；配置中掉线
 // （ap_unreachable）走 linkLost，重连重新 join 并恢复原网。
+// web 模式：join 成功即开默认浏览器并持有链路，不发 CT-Prov 会话。
 library;
 
 import 'package:ap_discovery_adapter/ap_discovery_adapter.dart';
@@ -9,14 +10,16 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:provisioning_session/provisioning_session.dart';
 
 import 'package:desktop_app/provisioning/provisioning_controller.dart';
+import 'package:desktop_app/services/device_web_opener.dart';
 
 import 'provisioning_fakes.dart';
 
 Future<ProvisioningController> wiredAp(
   FakeSource source,
   FakeApJoiner joiner,
-  FakeApTransport transport,
-) async {
+  FakeApTransport transport, {
+  DeviceWebOpener? webPageOpener,
+}) async {
   final controller = ProvisioningController(
     environmentProbe: readyProbe(),
     discoverySource: source,
@@ -25,6 +28,7 @@ Future<ProvisioningController> wiredAp(
     linkEvents: (_) => const Stream<bool>.empty(),
     apJoiner: joiner,
     apTransportFactory: (_) => transport,
+    webPageOpener: webPageOpener,
     selfCheckHold: Duration.zero,
   );
   addTearDown(controller.dispose);
@@ -151,5 +155,151 @@ void main() {
     expect(joiner.joins, hasLength(2));
     await controller.rescan();
     expect(joiner.restores.length, 2);
+  });
+
+  group('web 模式：join 后直接打开设备网页并持有链路', () {
+    test('join 成功 → 开浏览器 → webBrowsing；无 CT-Prov 请求；断开才恢复原网', () async {
+      final source = FakeSource();
+      final joiner = FakeApJoiner();
+      final transport = FakeApTransport();
+      final openedUrls = <Uri>[];
+      final controller = await wiredAp(
+        source,
+        joiner,
+        transport,
+        webPageOpener: (url) async {
+          openedUrls.add(url);
+          return true;
+        },
+      );
+
+      await controller.selectCandidate(controller.candidates.first,
+          viaWeb: true);
+      await until(
+        () => controller.phase == SessionPhase.webBrowsing,
+        'web mode did not reach webBrowsing',
+      );
+
+      // NE101 默认网关根路径；未建立 CT-Prov 会话，链路仍被持有。
+      expect(openedUrls, [Uri.parse('http://192.168.1.1/')]);
+      expect(controller.webPageOpened, isTrue);
+      expect(transport.requests, 0);
+      expect(joiner.restores, isEmpty);
+
+      // 用户结束浏览：释放链路（恢复原网）并回到扫描循环。
+      await controller.finishWebBrowsing();
+      await until(
+        () => controller.phase == SessionPhase.scanning,
+        'finishWebBrowsing did not return to scanning',
+      );
+      expect(joiner.restores, hasLength(1));
+      expect(transport.requests, 0);
+    });
+
+    test('NE301 行：网页地址按型号解析为 192.168.10.10', () async {
+      final source = FakeSource();
+      final joiner = FakeApJoiner();
+      final transport = FakeApTransport();
+      final openedUrls = <Uri>[];
+      final controller = await wiredAp(
+        source,
+        joiner,
+        transport,
+        webPageOpener: (url) async {
+          openedUrls.add(url);
+          return true;
+        },
+      );
+
+      final ne301 = DiscoveryCandidate(
+        candidateId: 'ap:NE301_20007F',
+        macSuffix: '20007F',
+        modelHint: 'NE301',
+        channels: const {DiscoveryChannel.accessPoint},
+        provisionable: true,
+        busy: false,
+        lastSeen: DateTime.now(),
+      );
+      source.emit(ne301);
+      await until(
+        () => controller.candidates.any((c) => c.candidateId == ne301.candidateId),
+        'NE301 candidate did not surface',
+      );
+      await controller.selectCandidate(
+        controller.candidates
+            .firstWhere((c) => c.candidateId == ne301.candidateId),
+        viaWeb: true,
+      );
+      await until(
+        () => controller.phase == SessionPhase.webBrowsing,
+        'web mode did not reach webBrowsing',
+      );
+      expect(openedUrls, [Uri.parse('http://192.168.10.10/')]);
+      expect(joiner.gatewayHosts, ['192.168.10.10']);
+    });
+
+    test('浏览器启动失败 → webBrowsing 保持，重新打开翻正', () async {
+      final source = FakeSource();
+      final joiner = FakeApJoiner();
+      final transport = FakeApTransport();
+      var openResult = false;
+      final openedUrls = <Uri>[];
+      final controller = await wiredAp(
+        source,
+        joiner,
+        transport,
+        webPageOpener: (url) async {
+          openedUrls.add(url);
+          return openResult;
+        },
+      );
+
+      await controller.selectCandidate(controller.candidates.first,
+          viaWeb: true);
+      await until(
+        () => controller.phase == SessionPhase.webBrowsing,
+        'web mode did not reach webBrowsing',
+      );
+      expect(controller.webPageOpened, isFalse); // 面板显示失败注记 + 重开
+      expect(joiner.restores, isEmpty); // 启动失败不释放链路
+
+      openResult = true;
+      await controller.reopenWebPage();
+      expect(controller.webPageOpened, isTrue);
+      expect(openedUrls, hasLength(2));
+    });
+
+    test('join 失败后重试保持 web 模式', () async {
+      final source = FakeSource();
+      final joiner = FakeApJoiner();
+      joiner.joinError = const ApJoinException(kJoinTimeout, 'not associated');
+      final transport = FakeApTransport();
+      final openedUrls = <Uri>[];
+      final controller = await wiredAp(
+        source,
+        joiner,
+        transport,
+        webPageOpener: (url) async {
+          openedUrls.add(url);
+          return true;
+        },
+      );
+
+      await controller.selectCandidate(controller.candidates.first,
+          viaWeb: true);
+      await until(
+        () => controller.phase == SessionPhase.connectionError,
+        'join failure did not surface',
+      );
+      expect(openedUrls, isEmpty);
+
+      joiner.joinError = null;
+      await controller.retryConnect();
+      await until(
+        () => controller.phase == SessionPhase.webBrowsing,
+        'retry did not keep web mode',
+      );
+      expect(openedUrls, [Uri.parse('http://192.168.1.1/')]);
+    });
   });
 }

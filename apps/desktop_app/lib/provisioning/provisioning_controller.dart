@@ -20,6 +20,7 @@ import 'package:provisioning_session/provisioning_session.dart'
     hide ConfigSection;
 import 'package:softap_transport/softap_transport.dart';
 
+import '../services/device_web_opener.dart';
 import '../services/environment_probe.dart';
 import 'section_editing.dart';
 
@@ -37,6 +38,7 @@ class ProvisioningController extends ChangeNotifier {
     Stream<bool> Function(String deviceId)? linkEvents,
     ApJoiner? apJoiner,
     ProvTransport Function(Uri endpoint)? apTransportFactory,
+    DeviceWebOpener? webPageOpener,
     this.scanTimeout = const Duration(seconds: 20),
     this.ttl = const Duration(seconds: 12),
     this.selfCheckHold = const Duration(seconds: 5),
@@ -64,7 +66,10 @@ class ProvisioningController extends ChangeNotifier {
        _apJoiner = apJoiner ?? WinWlanJoiner(),
        // Tests drive the softAP session over a fake transport; production
        // always builds the real HTTP transport.
-       _apTransportFactory = apTransportFactory {
+       _apTransportFactory = apTransportFactory,
+       // Web mode launches the device console in the default browser;
+       // tests inject a recorder instead of shelling out.
+       _webOpener = webPageOpener ?? openDeviceWebPage {
     _machine = ProvisioningMachine(
       onStopSources: _stopSources,
       onReleaseLink: _releaseLink,
@@ -99,6 +104,7 @@ class ProvisioningController extends ChangeNotifier {
   final Stream<bool> Function(String deviceId) _linkEvents;
   final ApJoiner _apJoiner;
   final ProvTransport Function(Uri endpoint)? _apTransportFactory;
+  final DeviceWebOpener _webOpener;
 
   late final ProvisioningMachine _machine;
   late final StreamSubscription<SessionPhase> _phaseSub;
@@ -121,6 +127,20 @@ class ProvisioningController extends ChangeNotifier {
   /// 本次会话是否真的动过 radio——没加入就不该恢复）。
   WlanRestorePoint? _apRestore;
   bool _apRestoreValid = false;
+
+  /// Web mode (M5): the softAP chain stops after the join and holds the
+  /// link for the device web console opened in the browser. Set per
+  /// [selectCandidate] call; kept across a connect retry so the failed
+  /// mode is what gets retried.
+  bool _webMode = false;
+
+  /// Device console page opened in web mode (gateway root), for the hold
+  /// panel display and the reopen action; null outside web mode.
+  Uri? webPageUrl;
+
+  /// Last launch result in web mode — false renders the "could not open"
+  /// note with the reopen button instead of the URL row.
+  bool webPageOpened = false;
 
   /// Whether the softAP join chain is wired (row actions + dialog gate).
   bool get apJoinAvailable => true;
@@ -246,6 +266,7 @@ class ProvisioningController extends ChangeNotifier {
     SessionPhase.showingGuide ||
     SessionPhase.scanEmpty => 'scan',
     SessionPhase.connecting ||
+    SessionPhase.webBrowsing ||
     SessionPhase.readingCapabilities ||
     SessionPhase.connectionError ||
     SessionPhase.capabilityError => 'connect',
@@ -383,11 +404,19 @@ class ProvisioningController extends ChangeNotifier {
   }
 
   /// 从候选列表选定设备：进入连接链（配对 → 通道 → 会话 → 读能力）。
-  Future<void> selectCandidate(DiscoveryCandidate candidate) async {
+  /// [viaWeb] 只对 softAP 链生效：join 成功后不开 CT-Prov 会话，改为
+  /// 打开设备网页并保持链路（web 模式）。
+  Future<void> selectCandidate(
+    DiscoveryCandidate candidate, {
+    bool viaWeb = false,
+  }) async {
     if (_machine.phase != SessionPhase.resultsAvailable) return;
     selectedCandidate = candidate;
     deviceInfo = null;
     capabilities = null;
+    _webMode = viaWeb;
+    webPageUrl = null;
+    webPageOpened = false;
     connectSteps.clear();
     connectStepTimes.clear();
     notifyListeners();
@@ -508,6 +537,19 @@ class ProvisioningController extends ChangeNotifier {
         onStep: onStep,
       );
       if (_machine.phase != SessionPhase.connecting) return;
+      // Web mode: the chain stops here — no CT-Prov session, no
+      // capability read. The browser owns the interaction; the app's job
+      // narrows to holding the link (restore point stays armed) until the
+      // user finishes. Works on vendor firmware too: only the web console
+      // is required, not section 16.
+      if (_webMode) {
+        _machine.webLinkReady();
+        webPageUrl = endpoint.replace(path: '/');
+        onStep('opening web console');
+        await _openWebPage();
+        notifyListeners();
+        return;
+      }
       onStep('device link');
       transport =
           _apTransportFactory?.call(endpoint) ??
@@ -571,7 +613,8 @@ class ProvisioningController extends ChangeNotifier {
   }
 
   /// 连接/能力失败后原候选立即重试（NE101 断开后仍在配置模式，重试链
-  /// 与首次选择完全一致）。
+  /// 与首次选择完全一致）。保留上次选择的 web/配置模式——失败重试不该
+  /// 悄悄换交互面。
   Future<void> retryConnect() async {
     final candidate = selectedCandidate;
     if (candidate == null) return;
@@ -580,7 +623,37 @@ class ProvisioningController extends ChangeNotifier {
       return;
     }
     _machine.switchCandidate();
-    await selectCandidate(candidate);
+    await selectCandidate(candidate, viaWeb: _webMode);
+  }
+
+  // ---- web mode (held softAP link + device console) ----
+
+  /// Re-launch the device console (first launch failed, or the user
+  /// closed the browser tab and the device went idle-sleep).
+  Future<void> reopenWebPage() async {
+    if (_machine.phase != SessionPhase.webBrowsing) return;
+    await _openWebPage();
+    notifyListeners();
+  }
+
+  Future<void> _openWebPage() async {
+    final url = webPageUrl;
+    if (url == null) return;
+    try {
+      webPageOpened = await _webOpener(url);
+    } catch (error) {
+      // Launch failures keep the hold panel alive (reopen button);
+      // there is no further fallback inside the app.
+      debugPrint('open device web page failed: $error');
+      webPageOpened = false;
+    }
+  }
+
+  /// Exit web mode: release the held link (restores the pre-join Wi-Fi
+  /// through the machine's cleanup hook) and return to the scan loop.
+  Future<void> finishWebBrowsing() async {
+    if (_machine.phase != SessionPhase.webBrowsing) return;
+    await _machine.cleanup();
   }
 
   // ---- link-loss detection (config session) ----
