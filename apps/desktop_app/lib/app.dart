@@ -5,7 +5,6 @@ import 'package:neolink_ui/neolink_ui.dart';
 
 import 'l10n/app_localizations.dart';
 import 'provisioning/provisioning_controller.dart';
-import 'services/device_web_console.dart';
 import 'services/settings_store.dart';
 import 'services/wifi_settings_opener.dart';
 import 'shell/shell.dart';
@@ -49,15 +48,12 @@ class _NeoLinkAppState extends State<NeoLinkApp> {
   @override
   void initState() {
     super.initState();
-    // Production assembly wires the WebView2 embed here (Windows-only;
-    // null elsewhere keeps the browser hold panel) — the controller's own
-    // default stays null so widget tests never touch a real WebView2.
-    _owned =
-        widget.controller == null
-            ? ProvisioningController(
-              webConsoleBuilder: defaultWebConsoleBuilder(),
-            )
-            : null;
+    // The embedded web console (web mode) stays dormant for now: the
+    // controller's webConsoleBuilder seam defaults to null, so a softAP
+    // join opens the system browser instead. Re-wire
+    // defaultWebConsoleBuilder() from services/device_web_console.dart
+    // here to ship the embed.
+    _owned = widget.controller == null ? ProvisioningController() : null;
     _settings = widget.settings ?? SettingsStore();
     final stored = _settings.load();
     if (stored?.theme != null) _mode = stored!.theme!;
