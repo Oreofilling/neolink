@@ -170,15 +170,15 @@ class _ConnectPageState extends State<ConnectPage> {
   Widget _webHoldCard(NLColors c, AppLocalizations l) {
     final deviceLabel = _deviceLabel();
     final url = controller.webPageUrl;
-    final embed = url == null
-        ? null
-        : controller.buildWebConsoleView(
-            url,
-            l.webConsoleReload,
-            l.webConsoleLoadFailed,
-          );
-    if (embed != null) {
-      return _webEmbedCard(c, l, deviceLabel, url, embed);
+    if (url != null) {
+      final embed = controller.buildWebConsoleView(
+        url,
+        l.webConsoleReload,
+        l.webConsoleLoadFailed,
+      );
+      if (embed != null) {
+        return _webEmbedCard(c, l, deviceLabel, url, embed);
+      }
     }
     return NLCard(
       child: Padding(
@@ -287,7 +287,7 @@ class _ConnectPageState extends State<ConnectPage> {
             Container(
               height: 520,
               width: double.infinity,
-              clip: Clip.antiAlias,
+              clipBehavior: Clip.antiAlias,
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(NLRadii.radiusLg),
                 border: Border.all(color: c.border),

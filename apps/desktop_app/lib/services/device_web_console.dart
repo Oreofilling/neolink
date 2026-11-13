@@ -69,11 +69,11 @@ class _DeviceWebConsoleState extends State<DeviceWebConsole> {
   Future<void> _createEnvironment() async {
     final appData = Platform.environment['APPDATA'];
     final profile = appData == null ? null : '$appData\\NeoLink\\WebView2';
-    final environment = WebViewEnvironment(
-      settings: WebViewEnvironmentSettings(userDataFolder: profile),
-    );
+    final WebViewEnvironment environment;
     try {
-      await environment.create();
+      environment = await WebViewEnvironment.create(
+        settings: WebViewEnvironmentSettings(userDataFolder: profile),
+      );
     } catch (error) {
       if (mounted) setState(() => _environmentError = error);
       return;
