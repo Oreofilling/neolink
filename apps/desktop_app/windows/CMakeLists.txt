@@ -57,6 +57,12 @@ add_subdirectory("runner")
 
 # Generated plugin build rules, which manage building the plugins and adding
 # them to the application.
+# flutter_inappwebview_windows still uses the legacy /await coroutine headers;
+# MSVC 14.51+ (VS 18 on CI runners) turns <experimental/coroutine> into a hard
+# STL1011 error unless this is defined. Directory-level so every plugin
+# subdirectory created below inherits it; inert on older toolsets where the
+# include is only a deprecation warning.
+add_compile_definitions(_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS)
 include(flutter/generated_plugins.cmake)
 
 
