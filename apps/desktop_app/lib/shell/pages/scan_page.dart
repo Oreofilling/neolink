@@ -12,9 +12,14 @@ import '../../services/wifi_settings_opener.dart';
 import '../widgets/scan_radar.dart';
 
 /// Pre-join dialog outcome for AP-only rows: cancel keeps the list, web
-/// holds the joined link for the device console in the browser, configure
-/// runs the in-app CT-Prov flow.
-enum _ApJoinChoice { cancel, web, configure }
+/// joins and shows the device console in the connect page, configure runs
+/// the in-app CT-Prov flow (its dialog button is hidden for now; tests
+/// drive that branch via selectCandidate(viaWeb: false)).
+enum _ApJoinChoice {
+  cancel,
+  web,
+  configure, // ignore: unused_field, hidden with the dialog button
+}
 
 /// Device scan page (v6): a one-line channel status strip up top, then the
 /// live device table as the first visual focus. Continuous scan semantics —
