@@ -153,15 +153,11 @@ class _ScanPageState extends State<ScanPage> {
                   ),
                 ),
                 const SizedBox(width: 8),
-                NLButton(
-                  label: dl.scanApDialogConfigure,
-                  variant: NLButtonVariant.secondary,
-                  size: NLButtonSize.sm,
-                  onPressed: () => Navigator.of(dialogContext).pop(
-                    _ApJoinChoice.configure,
-                  ),
-                ),
-                const SizedBox(width: 8),
+                // The in-app CT-Prov entry ("Configure in app",
+                // _ApJoinChoice.configure) is hidden for now — web mode is
+                // the shipped AP path. Re-add the button here to restore it;
+                // the controller branch (selectCandidate viaWeb: false)
+                // stays covered by tests.
                 NLButton(
                   label: dl.scanApDialogOpenWeb,
                   size: NLButtonSize.sm,

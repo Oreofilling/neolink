@@ -155,10 +155,11 @@ void main() {
     await settle(tester);
     expect(controller.phase, SessionPhase.resultsAvailable);
 
-    // AP 行连接先弹断网提示：三个选择，默认主按钮是打开网页配置。
+    // AP row connect warns about the Wi-Fi drop first: two choices now —
+    // the in-app config entry is hidden, web is the shipped AP path.
     await tester.tap(find.text('连接'));
     await settle(tester);
-    expect(find.text('应用内配置'), findsOneWidget);
+    expect(find.text('应用内配置'), findsNothing);
     expect(find.text('打开网页配置'), findsOneWidget);
 
     await tester.tap(find.text('打开网页配置'));
@@ -239,7 +240,7 @@ void main() {
     expect(controller.phase, SessionPhase.scanEmpty);
   });
 
-  testWidgets('AP 行弹窗选「应用内配置」仍走 CT-Prov 链（回归）', (tester) async {
+  testWidgets('应用内配置入口隐藏后 CT-Prov 链仍可达（回归）', (tester) async {
     final source = FakeSource();
     final device = FakeCtDevice();
     final joiner = FakeApJoiner();
@@ -258,15 +259,17 @@ void main() {
     await pumpApp(tester, controller);
     await settle(tester);
 
-    source.emit(
-      sampleCandidate(candidateId: 'ap:NE101-P_BBC6DC')
-          .copyWith(channels: const {DiscoveryChannel.accessPoint}),
-    );
+    final candidate =
+        sampleCandidate(candidateId: 'ap:NE101-P_BBC6DC').copyWith(
+          channels: const {DiscoveryChannel.accessPoint},
+        );
+    source.emit(candidate);
     await settle(tester);
 
-    await tester.tap(find.text('连接'));
-    await settle(tester);
-    await tester.tap(find.text('应用内配置'));
+    // The dialog button is hidden, so the CT-Prov chain is driven through
+    // the controller directly (selectCandidate viaWeb: false) — the path
+    // the button used to hand off to.
+    await controller.selectCandidate(candidate, viaWeb: false);
     await settle(tester);
 
     // 不开网页，正常读到能力进入模块列表。
@@ -1227,7 +1230,7 @@ void main() {
     expect(controller.phase, SessionPhase.scanEmpty);
   });
 
-  testWidgets('M5 AP-only 行：连接前弹断网提示，取消留在列表，「应用内配置」进 softAP 链', (tester) async {
+  testWidgets('M5 AP-only 行：连接前弹断网提示，取消留在列表，CT-Prov 链直达模块列表', (tester) async {
     final source = FakeSource();
     final device = FakeCtDevice();
     final joiner = FakeApJoiner();
@@ -1250,13 +1253,14 @@ void main() {
 
     await tester.tap(find.text('连接'));
     await settle(tester, 12); // dialog open animation
-    // 提示同时点名设备热点与将被暂时断开的当前网络。
+    // 提示同时点名设备热点与将被暂时断开的当前网络；应用内配置入口已隐藏。
     expect(find.text('连接设备 Wi-Fi'), findsOneWidget);
     expect(find.text('应用将连接设备热点 NE101-P_BBC6DC 进行配置。'), findsOneWidget);
     expect(
       find.text('连接期间将暂时断开当前 Wi-Fi（TP-LINK-5G），配置结束后自动恢复。'),
       findsOneWidget,
     );
+    expect(find.text('应用内配置'), findsNothing);
 
     // 取消：留在候选列表，未动 radio。
     await tester.tap(find.text('取消'));
@@ -1265,11 +1269,10 @@ void main() {
     expect(controller.phase, SessionPhase.resultsAvailable);
     expect(joiner.joins, isEmpty);
 
-    // 「应用内配置」：进入 softAP 连接链，直达模块列表（web 选择由
-    // web 模式用例覆盖）。
-    await tester.tap(find.text('连接'));
-    await settle(tester, 12);
-    await tester.tap(find.text('应用内配置'));
+    // Hidden-button regression: the softAP CT-Prov chain still runs via
+    // selectCandidate (web choice is covered by the web-mode case above).
+    final candidate = apCandidate();
+    await controller.selectCandidate(candidate, viaWeb: false);
     await settle(tester);
     expect(joiner.joins, ['NE101-P_BBC6DC']);
     expect(controller.phase, SessionPhase.choosingSections);
