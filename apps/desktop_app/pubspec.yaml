@@ -26,6 +26,12 @@ dependencies:
   # flutter_zxing, so this adds no new native code.
   image: ^4.1.0
   file_selector: ^1.0.3
+  # Embedded device web console for web mode (softAP hold): WebView2 via
+  # flutter_inappwebview. Windows support ships only on the 6.2.0 beta
+  # line (flutter_inappwebview_windows); NuGet CLI must be on PATH for the
+  # CMake restore (F:\tools on the build box). The controller seam keeps
+  # tests on the fake builder — no WebView2 in the suite.
+  flutter_inappwebview: 6.2.0-beta.3
   neolink_ui:
     path: ../../packages/neolink_ui
   ct_prov_core:

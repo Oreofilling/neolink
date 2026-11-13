@@ -17,6 +17,7 @@ import 'package:provisioning_session/provisioning_session.dart';
 
 import 'package:desktop_app/app.dart';
 import 'package:desktop_app/provisioning/provisioning_controller.dart';
+import 'package:desktop_app/services/device_web_console.dart';
 import 'package:desktop_app/services/device_web_opener.dart';
 import 'package:desktop_app/services/environment_probe.dart';
 import 'package:desktop_app/services/settings_store.dart';
@@ -34,6 +35,7 @@ ProvisioningController wiredController(
   ApJoiner? apJoiner,
   ProvTransport Function(Uri endpoint)? apTransportFactory,
   DeviceWebOpener? webPageOpener,
+  WebConsoleBuilder? webConsoleBuilder,
 }) => ProvisioningController(
   environmentProbe: readyProbe(),
   discoverySource: source,
@@ -45,6 +47,7 @@ ProvisioningController wiredController(
   apJoiner: apJoiner,
   apTransportFactory: apTransportFactory,
   webPageOpener: webPageOpener,
+  webConsoleBuilder: webConsoleBuilder,
   scanTimeout: scanTimeout,
   selfCheckHold: selfCheckHold,
 );
@@ -169,6 +172,65 @@ void main() {
     expect(find.text('断开并恢复 Wi-Fi'), findsOneWidget);
 
     // 断开：恢复原网并回扫描循环，泵过扫描窗口收敛回空态（清扫定时器）。
+    await tester.tap(find.text('断开并恢复 Wi-Fi'));
+    await settle(tester);
+    expect(controller.phase, SessionPhase.scanning);
+    expect(joiner.restores, hasLength(1));
+    await tester.pump(const Duration(seconds: 21));
+    expect(controller.phase, SessionPhase.scanEmpty);
+  });
+
+  testWidgets('AP 行 web 模式（内嵌）：面板内嵌控制台，浏览器改手动兜底', (tester) async {
+    final source = FakeSource();
+    final device = FakeCtDevice();
+    final joiner = FakeApJoiner();
+    final transport = FakeApTransport();
+    final openedUrls = <Uri>[];
+    final controller = wiredController(
+      source,
+      device,
+      apJoiner: joiner,
+      apTransportFactory: (_) => transport,
+      webPageOpener: (url) async {
+        openedUrls.add(url);
+        return true;
+      },
+      webConsoleBuilder: (url, reloadLabel, loadFailedText) =>
+          Text('embed-console:${url.host}'),
+    );
+    addTearDown(source.close);
+    addTearDown(device.close);
+    addTearDown(controller.dispose);
+
+    await pumpApp(tester, controller);
+    await settle(tester);
+
+    source.emit(
+      sampleCandidate(candidateId: 'ap:NE101-P_BBC6DC')
+          .copyWith(channels: const {DiscoveryChannel.accessPoint}),
+    );
+    await settle(tester);
+
+    await tester.tap(find.text('连接'));
+    await settle(tester);
+    await tester.tap(find.text('打开网页配置'));
+    await settle(tester);
+    expect(controller.phase, SessionPhase.webBrowsing);
+
+    // 内嵌模式：join 后不再自动拉起浏览器。
+    expect(openedUrls, isEmpty);
+    // 面板：内嵌面 + URL 行 + 浏览器兜底 + 断开恢复。
+    expect(find.text('embed-console:192.168.1.1'), findsOneWidget);
+    expect(find.text('http://192.168.1.1/'), findsOneWidget);
+    expect(find.text('在浏览器中打开'), findsOneWidget);
+    expect(find.text('断开并恢复 Wi-Fi'), findsOneWidget);
+
+    // 浏览器兜底变成手动动作。
+    await tester.tap(find.text('在浏览器中打开'));
+    await settle(tester);
+    expect(openedUrls, [Uri.parse('http://192.168.1.1/')]);
+
+    // 断开恢复链与浏览器路径共用（第 ④ 步回归的自动化部分）。
     await tester.tap(find.text('断开并恢复 Wi-Fi'));
     await settle(tester);
     expect(controller.phase, SessionPhase.scanning);

@@ -170,6 +170,16 @@ class _ConnectPageState extends State<ConnectPage> {
   Widget _webHoldCard(NLColors c, AppLocalizations l) {
     final deviceLabel = _deviceLabel();
     final url = controller.webPageUrl;
+    final embed = url == null
+        ? null
+        : controller.buildWebConsoleView(
+            url,
+            l.webConsoleReload,
+            l.webConsoleLoadFailed,
+          );
+    if (embed != null) {
+      return _webEmbedCard(c, l, deviceLabel, url, embed);
+    }
     return NLCard(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -218,6 +228,87 @@ class _ConnectPageState extends State<ConnectPage> {
               children: [
                 NLButton(
                   label: l.webHoldReopen,
+                  variant: NLButtonVariant.secondary,
+                  size: NLButtonSize.sm,
+                  onPressed: controller.reopenWebPage,
+                ),
+                const SizedBox(width: 8),
+                NLButton(
+                  label: l.webHoldDisconnect,
+                  size: NLButtonSize.sm,
+                  onPressed: controller.finishWebBrowsing,
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Embedded web mode (preferred): the console renders inside the card —
+  /// the panel keeps the hold semantics legible (held hotspot, idle
+  /// sleep) and the two exits: browser fallback and restore Wi-Fi. The
+  /// reload action lives inside the console surface (corner chip).
+  Widget _webEmbedCard(
+    NLColors c,
+    AppLocalizations l,
+    String deviceLabel,
+    Uri url,
+    Widget embed,
+  ) {
+    return NLCard(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                NLBadge(
+                  label: deviceLabel.isEmpty
+                      ? l.badgeChecking
+                      : l.connectWith(deviceLabel),
+                  variant: NLBadgeVariant.success,
+                  dot: true,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    url.toString(),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: NLType.mono.copyWith(color: c.mutedForeground),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Container(
+              height: 520,
+              width: double.infinity,
+              clip: Clip.antiAlias,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(NLRadii.radiusLg),
+                border: Border.all(color: c.border),
+              ),
+              child: embed,
+            ),
+            const SizedBox(height: 10),
+            Text(
+              l.webHoldKeepNote,
+              style: NLType.aux.copyWith(color: c.mutedForeground),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              l.webHoldIdleNote,
+              style: NLType.aux.copyWith(color: c.mutedForeground),
+            ),
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                NLButton(
+                  label: l.webHoldOpenBrowser,
                   variant: NLButtonVariant.secondary,
                   size: NLButtonSize.sm,
                   onPressed: controller.reopenWebPage,

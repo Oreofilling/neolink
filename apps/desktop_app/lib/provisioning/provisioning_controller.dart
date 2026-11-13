@@ -14,6 +14,7 @@ import 'package:communication_domain/communication_domain.dart';
 import 'package:ct_disc_adapter/ct_disc_adapter.dart';
 import 'package:ct_prov_core/ct_prov_core.dart' show ProvTransport;
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart' show Widget;
 // 能力侧的 ConfigSection 与 communication_domain 节类型重名：控制器
 // 语境里 ConfigSection 一律指节草稿，能力节只经 capabilities.sections 迭代。
 import 'package:provisioning_session/provisioning_session.dart'
@@ -21,6 +22,7 @@ import 'package:provisioning_session/provisioning_session.dart'
 import 'package:softap_transport/softap_transport.dart';
 
 import '../services/device_web_opener.dart';
+import '../services/device_web_console.dart';
 import '../services/environment_probe.dart';
 import 'section_editing.dart';
 
@@ -39,6 +41,7 @@ class ProvisioningController extends ChangeNotifier {
     ApJoiner? apJoiner,
     ProvTransport Function(Uri endpoint)? apTransportFactory,
     DeviceWebOpener? webPageOpener,
+    WebConsoleBuilder? webConsoleBuilder,
     this.scanTimeout = const Duration(seconds: 20),
     this.ttl = const Duration(seconds: 12),
     this.selfCheckHold = const Duration(seconds: 5),
@@ -69,7 +72,12 @@ class ProvisioningController extends ChangeNotifier {
        _apTransportFactory = apTransportFactory,
        // Web mode launches the device console in the default browser;
        // tests inject a recorder instead of shelling out.
-       _webOpener = webPageOpener ?? openDeviceWebPage {
+       _webOpener = webPageOpener ?? openDeviceWebPage,
+       // Web mode's preferred surface is the embedded console. Default is
+       // deliberately null (browser fallback): the production builder is
+       // wired at app assembly (app.dart) so widget tests never touch a
+       // real WebView2 — the suite also runs on the Windows host.
+       _webConsole = webConsoleBuilder {
     _machine = ProvisioningMachine(
       onStopSources: _stopSources,
       onReleaseLink: _releaseLink,
@@ -105,6 +113,9 @@ class ProvisioningController extends ChangeNotifier {
   final ApJoiner _apJoiner;
   final ProvTransport Function(Uri endpoint)? _apTransportFactory;
   final DeviceWebOpener _webOpener;
+
+  /// Embedded console seam (web mode); null = browser behavior.
+  final WebConsoleBuilder? _webConsole;
 
   late final ProvisioningMachine _machine;
   late final StreamSubscription<SessionPhase> _phaseSub;
@@ -538,7 +549,7 @@ class ProvisioningController extends ChangeNotifier {
       );
       if (_machine.phase != SessionPhase.connecting) return;
       // Web mode: the chain stops here — no CT-Prov session, no
-      // capability read. The browser owns the interaction; the app's job
+      // capability read. The console owns the interaction; the app's job
       // narrows to holding the link (restore point stays armed) until the
       // user finishes. Works on vendor firmware too: only the web console
       // is required, not section 16.
@@ -546,7 +557,11 @@ class ProvisioningController extends ChangeNotifier {
         _machine.webLinkReady();
         webPageUrl = endpoint.replace(path: '/');
         onStep('opening web console');
-        await _openWebPage();
+        // Embedded console renders on the hold panel; without the embed
+        // seam the browser owns the page instead (legacy path).
+        if (_webConsole == null) {
+          await _openWebPage();
+        }
         notifyListeners();
         return;
       }
@@ -628,8 +643,21 @@ class ProvisioningController extends ChangeNotifier {
 
   // ---- web mode (held softAP link + device console) ----
 
-  /// Re-launch the device console (first launch failed, or the user
-  /// closed the browser tab and the device went idle-sleep).
+  /// Whether the embedded console surface is wired (web mode's preferred
+  /// presentation). False keeps the browser hold panel.
+  bool get webConsoleEmbedded => _webConsole != null;
+
+  /// Embedded console surface for the hold panel, or null when the embed
+  /// is unavailable — the page then falls back to the browser card.
+  Widget? buildWebConsoleView(
+    Uri url,
+    String reloadLabel,
+    String loadFailedText,
+  ) => _webConsole?.call(url, reloadLabel, loadFailedText);
+
+  /// Open the console in the default browser: the legacy web-mode surface,
+  /// and the escape hatch when the embedded console will not do (printing,
+  // a bigger window, WebView2 runtime missing).
   Future<void> reopenWebPage() async {
     if (_machine.phase != SessionPhase.webBrowsing) return;
     await _openWebPage();
